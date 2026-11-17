@@ -133,10 +133,11 @@ export function editLesson(id, tab = "info") {
     ui.setTitle(`✏️ ${esc(W.emoji)} ${esc(W.title)}`, back);
     const tabs = [["info", "ℹ️ Infos"], ["course", "📘 Cours"], ["vocab", `🗣️ Vocabulaire (${W.vocab.length})`], ["ex", `✏️ Exercices (${W.ex.length})`], ["stu", "👥 Élèves"]];
     ui.m.innerHTML = `<div class="tabs">${tabs.map(t => `<button class="${tab === t[0] ? "on" : ""}" data-tab="${t[0]}">${t[1]}</button>`).join("")}</div><div id="pane"></div>
-      <div class="sticky-save"><span class="mute" style="margin-right:auto">${W.published ? "✅ Publiée" : "📝 Brouillon (invisible pour les élèves)"}</span><button class="btn ghost" id="prev">👁️ Aperçu</button><button class="btn" id="save" ${dirty ? "" : "disabled"}>${dirty ? "💾 Enregistrer" : "✓ Enregistré"}</button></div>`;
+      <div class="sticky-save"><span class="mute" style="margin-right:auto">${W.published ? "✅ Publiée : visible par les élèves qui l'ont dans leur parcours" : "📝 Brouillon : invisible pour les élèves"}</span><button class="btn ghost" id="prev">👁️ Aperçu</button>${W.published ? "" : `<button class="btn okb" id="pub">✅ Publier</button>`}<button class="btn" id="save" ${dirty ? "" : "disabled"} title="${dirty ? "Enregistrer les modifications (Ctrl+S)" : "Tout est enregistré. Le bouton se réactive dès que vous modifiez quelque chose."}">${dirty ? "💾 Enregistrer" : "✓ Enregistré"}</button></div>`;
     $$("[data-tab]").forEach(b => b.onclick = () => { syncCourse(); tab = b.dataset.tab; render(); });
     $("#save").onclick = save;
     $("#prev").onclick = () => { syncCourse(); preview(); };
+    const pb = $("#pub"); if (pb) pb.onclick = async () => { syncCourse(); W.published = true; dirty = true; await save(); if (!dirty) { toast("Leçon publiée ✓ Ajoutez-la au parcours de vos élèves (onglet 👥 Élèves).", 4000); render(); } else W.published = false; };
     ({ info, course, vocab, ex, stu })[tab]($("#pane"));
   };
   const syncCourse = () => { const r = $("#rte"), c = $("#code"); if (r) W.course = cleanHtml(r.innerHTML); if (c) W.course = c.value; };
