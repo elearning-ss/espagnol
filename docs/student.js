@@ -3,6 +3,8 @@ import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, no
 import { previewFile, fileKind, kindIcon, fmtSize } from "./files.js";
 import { authError } from "./fb.js";
 
+// préférences d'affichage du vocabulaire (mémorisées sur l'appareil)
+const VP = { get: k => { try { return localStorage.getItem("paso_voc_" + k) === "1"; } catch (e) { return false; } }, set: (k, v) => { try { localStorage.setItem("paso_voc_" + k, v ? "1" : "0"); } catch (e) {} } };
 let C; // contexte : { api, user, profile, lessons, files, folders, plan, progress, preview, onExit }
 
 export function startStudent(ctx) {
@@ -107,11 +109,20 @@ function lesson(id, tab = "c") {
       <div class="card course">${linkify(l.course) || '<p class="mute">Pas encore de cours pour cette étape.</p>'}</div>
       ${l.vocab.length ? `<button class="btn full" data-t="v">Voir le vocabulaire →</button>` : `<button class="btn full" id="doex">Faire les exercices →</button>`}`;
   } else {
-    h += `<p class="mute">Touchez une ligne pour l'entendre. Répétez à voix haute.</p><div class="card">${l.vocab.map(v => `<div class="voc" data-say="${esc(v[0])}"><div><div class="it">${esc(v[0])}</div>${v[2] ? `<div class="ph">[${esc(v[2])}]</div>` : ""}<div class="mute">${esc(v[1])}</div></div><span class="sp">🔊</span></div>`).join("") || '<p class="mute">Pas de vocabulaire.</p>'}</div>
+    const fr = VP.get("fr"), hide = VP.get("hide");
+    h += `<div class="row tight vocbar"><button class="btn ghost small" id="vdir" title="Inverser l'ordre des langues">🔁 ${fr ? "Français → Espagnol" : "Espagnol → Français"}</button><button class="btn ${hide ? "" : "ghost"} small" id="vhide">${hide ? "👁️ Montrer les traductions" : "🙈 Cacher la traduction"}</button></div>
+      <p class="mute">${hide ? "Essayez de trouver la traduction, puis touchez la ligne pour vérifier." : "Touchez une ligne pour l'entendre. Répétez à voix haute."}</p>
+      <div class="card">${l.vocab.map(v => {
+        const es = `<div class="it">${esc(v[0])}</div>${v[2] ? `<div class="ph">[${esc(v[2])}]</div>` : ""}`, frl = `<div class="${fr ? "it" : "mute"}">${esc(v[1])}</div>`;
+        const first = fr ? frl : es, second = fr ? es : frl;
+        return `<div class="voc" ${fr && hide ? "" : `data-say="${esc(v[0])}"`} data-es="${esc(v[0])}"><div>${first}<div class="${hide ? "veil" : ""}">${hide ? `<span class="veil-t">••• toucher pour voir</span><div class="veil-a">${second}</div>` : second}</div></div><span class="sp">🔊</span></div>`;
+      }).join("") || '<p class="mute">Pas de vocabulaire.</p>'}</div>
       <button class="btn full" id="doex">Faire les exercices →</button>`;
   }
   ui.m.innerHTML = h;
   $$("[data-t]", ui.m).forEach(b => b.onclick = () => lesson(id, b.dataset.t));
+  const vd = $("#vdir"); if (vd) { vd.onclick = () => { VP.set("fr", !VP.get("fr")); lesson(id, "v"); }; $("#vhide").onclick = () => { VP.set("hide", !VP.get("hide")); lesson(id, "v"); }; }
+  $$(".veil", ui.m).forEach(v => v.closest(".voc").addEventListener("click", () => { if (!v.classList.contains("open")) { v.classList.add("open"); const r = v.closest(".voc"); if (!r.dataset.say) speak(r.dataset.es); } }));
   const d = $("#doex"); if (d) d.onclick = () => { go("exercises"); exQuiz(id); };
 }
 
