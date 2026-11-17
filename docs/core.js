@@ -174,7 +174,7 @@ async function finish() {
   const pct = Q.list.length ? Math.round(Q.ok / Q.list.length * 100) : 0;
   const pass = pct >= (Q.pass ?? 70), gain = Q.ok * 10;
   const extra = await Q.end(pct, pass, gain);
-  ui.m.innerHTML = `<div class="card center"><div class="big">${pct >= 90 ? "🏆" : pass ? "🎉" : "💪"}</div><h2 style="margin:0">${pct} %</h2><p>${Q.ok} / ${Q.list.length} bonnes réponses${Q.preview ? "" : ` · +${gain} XP`}</p>${extra}</div>`;
+  ui.m.innerHTML = `<div class="card center"><div class="big">${pct >= 90 ? "🏆" : pass ? "🎉" : "💪"}</div><h2 style="margin:0">${pct} %</h2><p>${Q.ok} / ${Q.list.length} bonnes réponses</p>${extra}</div>`;
 }
 
 // Petits exercices automatiques tirés du vocabulaire

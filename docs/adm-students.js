@@ -14,7 +14,7 @@ export function stats(s) {
   const passed = L.filter(i => i.passed).length, open = L.filter(i => i.unlocked).length;
   const att = Object.values(pr.attempts || {}).reduce((a, b) => a + b.length, 0);
   const docs = P.reduce((a, c) => a + c.items.filter(i => i.k !== "l" && i.visible).length, 0);
-  return { P, L, passed, open, total: L.length, xp: pr.xp || 0, last: pr.last, att, docs };
+  return { P, L, passed, open, total: L.length, last: pr.last, att, docs };
 }
 const av = (s, cls = "") => `<span class="av ${cls}">${esc(initials(s))}</span>`;
 const daysAgo = t => t ? Math.floor((Date.now() - t) / 864e5) : null;
@@ -29,7 +29,7 @@ export function studentsView() {
       return `<div class="scard ${s.disabled ? "off" : ""}" data-st="${s.id}"><input type="checkbox" class="ck2" data-ck="${s.id}" title="Sélectionner">
         <div class="row tight" style="align-items:center">${av(s, "lg")}<div style="min-width:0"><b>${esc(sName(s))}</b><div class="mute ell">${esc(s.email)}</div></div></div>
         <div class="minibar" style="margin:10px 0 4px"><i style="width:${st.total ? st.passed / st.total * 100 : 0}%"></i></div>
-        <div class="mute" style="font-size:13px">${st.passed}/${st.total} leçons réussies · ${st.docs} doc. · ${st.xp} XP</div>
+        <div class="mute" style="font-size:13px">${st.passed}/${st.total} leçons réussies · ${st.docs} doc. · ${st.att} série${st.att > 1 ? "s" : ""}</div>
         <div style="font-size:13px;margin-top:4px">${s.disabled ? '<span class="tag D">désactivé</span>' : !st.last ? '<span class="tag T">jamais connecté</span>' : d > 10 ? `<span class="tag G">inactif depuis ${d} j</span>` : `<span class="tag OK">actif ${d === 0 ? "aujourd'hui" : `il y a ${d} j`}</span>`} ${S.plans[s.id]?.mode === "auto" ? '<span class="tag D">auto</span>' : ""}</div></div>`; }).join("")}</div>`
       : `<div class="card center"><div class="big">🎓</div><p>Pas encore d'élève.</p><p class="mute">Invitez votre premier élève : il recevra un e-mail pour choisir son mot de passe.</p></div>`}`;
   $("#inv").onclick = invite;
@@ -87,7 +87,7 @@ export function studentDetail(uid, tab = "path") {
     ui.setTitle(`🎓 ${esc(sName(s))}`, () => S.C.go("students"));
     ui.m.innerHTML = `<div class="card shead"><div class="row tight" style="align-items:center">${av(s, "xl")}<div style="flex:1;min-width:200px"><h2 style="margin:0">${esc(sName(s))}</h2><div class="mute">${esc(s.email)}${s.disabled ? ' · <span class="tag D">désactivé</span>' : ""}</div></div>
         <button class="btn ghost small" id="s_prev">👁️ Voir comme l'élève</button><button class="ib" id="s_more" title="Plus d'actions">⋯</button></div>
-      <div class="kpi" style="margin:12px 0 0"><div><b>${st.passed}/${st.total}</b><span class="mute">leçons réussies</span></div><div><b>${st.open}</b><span class="mute">leçons ouvertes</span></div><div><b>${st.docs}</b><span class="mute">documents</span></div><div><b>${st.xp}</b><span class="mute">XP</span></div><div><b style="font-size:15px">${fmtDate(st.last)}</b><span class="mute">dernière activité</span></div></div></div>
+      <div class="kpi" style="margin:12px 0 0"><div><b>${st.passed}/${st.total}</b><span class="mute">leçons réussies</span></div><div><b>${st.open}</b><span class="mute">leçons ouvertes</span></div><div><b>${st.docs}</b><span class="mute">documents</span></div><div><b>${st.att}</b><span class="mute">séries d'exercices</span></div><div><b style="font-size:15px">${fmtDate(st.last)}</b><span class="mute">dernière activité</span></div></div></div>
     <div class="tabs"><button data-t="path" class="${tab === "path" ? "on" : ""}">🧭 Parcours</button><button data-t="track" class="${tab === "track" ? "on" : ""}">📊 Suivi</button><button data-t="set" class="${tab === "set" ? "on" : ""}">⚙️ Réglages</button></div>
     <div id="pane"></div>
     <div class="sticky-save"><span class="mute" style="margin-right:auto">${P.mode === "auto" ? "Déblocage automatique" : "Déblocage manuel"} · Ctrl+S pour enregistrer</span><button class="btn ghost hide" id="pundo">↩️ Annuler les modifications</button><button class="btn" id="psave" ${dirty ? "" : "disabled"}>${dirty ? "💾 Enregistrer" : "✓ Enregistré"}</button></div>`;

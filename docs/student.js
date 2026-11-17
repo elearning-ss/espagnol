@@ -16,7 +16,7 @@ export function startStudent(ctx) {
   $("#nav").className = "bottom";
   $("#nav").innerHTML = `<button data-nav="lessons"><b>📚</b>Leçons</button><button data-nav="exercises"><b>✏️</b>Exercices</button><button data-nav="account"><b>👤</b>Mon compte</button>`;
   $$("#nav [data-nav]").forEach(b => b.onclick = () => go(b.dataset.nav));
-  $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button><span class="pill" id="xp">${C.progress.xp} XP</span>`;
+  $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button>`;
   $("#spd").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; };
   if (C.preview) $("#exitprev").onclick = () => C.onExit();
   go("lessons");
@@ -26,7 +26,6 @@ const chapters = () => buildPath(C.plan, { lessons: C.lessons, files: C.files, f
 const path = () => pathLessons(chapters()).map(i => ({ l: i.obj, unlocked: i.unlocked, score: i.score, passed: i.passed }));
 function go(v) { $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === v)); ({ lessons, exercises, account })[v](); }
 async function saveProgress() {
-  $("#xp").textContent = C.progress.xp + " XP";
   if (C.preview) return;
   C.progress.last = Date.now();
   try { await C.api.replace("progress/" + C.user.uid, C.progress); } catch (e) { ui.toast("Sauvegarde impossible : " + authError(e)); }
@@ -160,7 +159,7 @@ function exQuiz(id) {
         C.progress.done[id] = Math.max(C.progress.done[id] || 0, pct);
         (C.progress.attempts[id] = C.progress.attempts[id] || []).push({ pct, at: Date.now() });
         C.progress.attempts[id] = C.progress.attempts[id].slice(-20);
-        C.progress.xp += gain; await saveProgress();
+        await saveProgress();
       }
       const all = path(), k = all.findIndex(x => x.l.id === id), nx = all[k + 1];
       setTimeout(() => {
@@ -200,7 +199,7 @@ function card() {
   if (!fr && !R.flip) speak(c.it);
   $("#fl").onclick = () => { if (!R.flip) { R.flip = true; if (fr) speak(c.it); card(); } };
   if (R.flip) {
-    $("#yes").onclick = () => { const k = C.progress.cards[c.it] || { b: 0 }; k.b = Math.min(k.b + 1, GAPS.length - 1); k.d = today() + GAPS[k.b]; C.progress.cards[c.it] = k; if (!c.retry) R.ok++; C.progress.xp += 2; saveProgress(); R.i++; R.flip = false; card(); };
+    $("#yes").onclick = () => { const k = C.progress.cards[c.it] || { b: 0 }; k.b = Math.min(k.b + 1, GAPS.length - 1); k.d = today() + GAPS[k.b]; C.progress.cards[c.it] = k; if (!c.retry) R.ok++; saveProgress(); R.i++; R.flip = false; card(); };
     $("#no").onclick = () => { C.progress.cards[c.it] = { b: 0, d: today() }; saveProgress(); R.list.push({ ...c, retry: 1 }); R.i++; R.flip = false; card(); };
   }
 }
@@ -210,7 +209,7 @@ function account() {
   ui.setTitle("👤 Mon compte");
   const P = path(), passed = P.filter(p => p.passed).length, att = Object.values(C.progress.attempts).reduce((a, b) => a + b.length, 0);
   ui.m.innerHTML = prevBanner() + `<div class="card"><h2 style="margin:0">${esc(C.profile.name || "Mon compte")}</h2><div class="mute">${esc(C.profile.email)}</div></div>
-  <div class="kpi"><div><b>${C.progress.xp}</b><span class="mute">XP</span></div><div><b>${passed} / ${P.length}</b><span class="mute">leçons réussies</span></div><div><b>${att}</b><span class="mute">séries d'exercices</span></div></div>
+  <div class="kpi"><div><b>${passed} / ${P.length}</b><span class="mute">leçons réussies</span></div><div><b>${att}</b><span class="mute">séries d'exercices</span></div></div>
   ${C.plan.message ? `<div class="prof">💬 <b>Message de votre professeur</b>\n${esc(C.plan.message)}</div>` : ""}
   <div class="card"><b>Mes scores</b>${P.filter(p => p.unlocked).map(p => `<div class="vrow"><div class="row" style="align-items:center"><span>${esc(p.l.emoji)} ${esc(p.l.title)}</span><span class="mute" style="flex:none">${p.score ? p.score + " %" : "—"}</span></div><div class="minibar"><i style="width:${p.score || 0}%"></i></div></div>`).join("") || '<p class="mute">Pas encore de score.</p>'}</div>
   <div class="card"><b>Mon prénom</b><div class="row" style="margin-top:6px"><input type="text" id="nm" value="${esc(C.profile.name || "")}"><button class="btn" style="flex:none" id="svn">Enregistrer</button></div></div>
