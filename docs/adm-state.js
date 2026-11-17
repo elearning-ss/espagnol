@@ -3,7 +3,7 @@ import { cleanLesson, ikey, newId, esc } from "./core.js";
 import { modal, toast } from "./ui.js";
 import { authError } from "./fb.js";
 
-export const S = { C: null, lessons: [], order: [], students: [], plans: {}, progress: {}, files: [], folders: [], templates: [] };
+export const S = { C: null, lessons: [], order: [], students: [], admins: [], plans: {}, progress: {}, files: [], folders: [], templates: [] };
 export const clone = o => JSON.parse(JSON.stringify(o ?? null));
 export const fail = e => { console.error(e); toast("❌ " + authError(e), 5000); };
 export const api = () => S.C.api;
@@ -15,6 +15,7 @@ export async function reload() {
   S.lessons = ls.map(l => ({ id: l.id, ...cleanLesson(l), createdAt: l.createdAt, updatedAt: l.updatedAt, source: l.source }));
   sortLessons();
   S.students = us.filter(u => u.role !== "admin").sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+  S.admins = us.filter(u => u.role === "admin").sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
   S.plans = Object.fromEntries(pls.map(p => [p.id, normPlan(p)]));
   S.progress = Object.fromEntries(prs.map(p => [p.id, p]));
   S.files = fs; S.folders = ds;
