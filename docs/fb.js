@@ -6,6 +6,23 @@ export const DEMO = !firebaseConfig;
 const V = "10.12.2";
 let api = null;
 
+// Firestore refuse les tableaux imbriqués (ex. vocabulaire [["hola","salut","O-la"], …]).
+// On les convertit en { __a: [...] } à l'écriture, et on les retransforme à la lecture.
+export function encode(v) {
+  if (Array.isArray(v)) return v.map(x => Array.isArray(x) ? { __a: encode(x) } : encode(x));
+  if (v && typeof v === "object") { const o = {}; for (const k in v) o[k] = encode(v[k]); return o; }
+  return v;
+}
+export function decode(v) {
+  if (Array.isArray(v)) return v.map(decode);
+  if (v && typeof v === "object") {
+    const keys = Object.keys(v);
+    if (keys.length === 1 && keys[0] === "__a" && Array.isArray(v.__a)) return decode(v.__a);
+    const o = {}; for (const k in v) o[k] = decode(v[k]); return o;
+  }
+  return v;
+}
+
 /* ======================= FIREBASE ======================= */
 async function initFirebase() {
   const A = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
@@ -36,13 +53,13 @@ async function initFirebase() {
       await U.sendPasswordResetEmail(auth, email, back());
       return uid;
     },
-    get: async p => { const s = await F.getDoc(ref(p)); return s.exists() ? s.data() : null; },
-    set: (p, d, merge = true) => F.setDoc(ref(p), d, { merge }),
-    replace: (p, d) => F.setDoc(ref(p), d),
+    get: async p => { const s = await F.getDoc(ref(p)); return s.exists() ? decode(s.data()) : null; },
+    set: (p, d, merge = true) => F.setDoc(ref(p), encode(d), { merge }),
+    replace: (p, d) => F.setDoc(ref(p), encode(d)),
     del: p => F.deleteDoc(ref(p)),
-    list: async c => (await F.getDocs(col(c))).docs.map(d => ({ id: d.id, ...d.data() })),
+    list: async c => (await F.getDocs(col(c))).docs.map(d => ({ id: d.id, ...decode(d.data()) })),
     // Documents dont le tableau `field` contient `value` (ex. fichiers attribués à un élève)
-    listContains: async (c, field, value) => (await F.getDocs(F.query(col(c), F.where(field, "array-contains", value)))).docs.map(d => ({ id: d.id, ...d.data() })),
+    listContains: async (c, field, value) => (await F.getDocs(F.query(col(c), F.where(field, "array-contains", value)))).docs.map(d => ({ id: d.id, ...decode(d.data()) })),
     newId: c => F.doc(col(c)).id,
   };
 }
