@@ -1,0 +1,170 @@
+// Outils communs à l'espace élève et à l'espace professeur.
+import { MAP_HTML } from "./seed.js";
+import { toast } from "./ui.js";
+export { MAP_HTML };
+
+export const $ = s => document.querySelector(s);
+export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+export const shuf = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+export const today = () => Math.floor(Date.now() / 864e5);
+export const linkify = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (x, t) => `<span class="say" data-say="${esc(t.replace(/<[^>]+>/g, ""))}">${t}</span>`);
+export const norm = s => String(s).toLowerCase().replace(/[’`´]/g, "'").replace(/[.,!?;:«»"()¿¡]/g, " ").replace(/\s*'\s*/g, "'").replace(/\s+/g, " ").trim();
+export const flat = s => norm(s).normalize("NFD").replace(/[̀-ͯ]/g, "");
+export const fmtDate = t => t ? new Date(t).toLocaleDateString("fr-BE", { day: "numeric", month: "short", year: "numeric" }) : "—";
+export const typeName = t => t === "G" ? "Grammaire" : t === "T" ? "Thème" : "Autre";
+
+/* ---------- écran ---------- */
+export const ui = {
+  get m() { return $("#m"); },
+  backFn: null,
+  setTitle(html, back) {
+    $("#ttl").innerHTML = html;
+    $("#back").hidden = !back;
+    ui.backFn = back || null;
+    window.scrollTo(0, 0);
+  },
+  toast(msg, ms = 2400) { toast(msg, ms);   },
+};
+
+/* ---------- voix espagnole ---------- */
+const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
+export const voiceState = { voice: null, slow: ls.get("paso_slow") === "1" };
+function pickVoice() {
+  const v = speechSynthesis.getVoices();
+  voiceState.voice = v.find(x => /es[-_]ES/i.test(x.lang)) || v.find(x => /^es/i.test(x.lang)) || null;
+  if (voiceState.voice) $$(".novoice").forEach(w => w.remove());
+}
+if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+export function speak(t, keep) {
+  if (!("speechSynthesis" in window) || !t) return;
+  if (!keep) speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(String(t).replace(/…/g, "").replace(/\s\/\s/g, ", "));
+  u.lang = "es-ES"; if (voiceState.voice) u.voice = voiceState.voice;
+  u.rate = voiceState.slow ? .65 : .95;
+  speechSynthesis.speak(u);
+}
+export function toggleSlow() { voiceState.slow = !voiceState.slow; ls.set("paso_slow", voiceState.slow ? "1" : "0"); }
+document.addEventListener("click", e => { const b = e.target.closest("[data-say]"); if (b && !b.closest(".rte")) speak(b.dataset.say); });
+export const noVoiceWarning = () => (!voiceState.voice && "speechSynthesis" in window)
+  ? `<div class="warn novoice">🔈 Pas de voix espagnole détectée sur cet appareil. Réglages › Accessibilité (ou Langue) › Synthèse vocale › ajoutez « Espagnol (Espagne) ». La lecture marche quand même avec la voix par défaut.</div>` : "";
+
+/* ---------- leçons ---------- */
+export function cleanLesson(l) {
+  return {
+    title: l.title || "Nouvelle leçon", emoji: l.emoji || "📘", type: l.type || "T",
+    goal: l.goal || "", support: l.support || "", course: l.course || "",
+    vocab: Array.isArray(l.vocab) ? l.vocab : [], ex: Array.isArray(l.ex) ? l.ex : [],
+    published: l.published !== false,
+    passScore: l.passScore ?? 70,
+  };
+}
+
+// Parcours d'un élève (ou d'un parcours type) : chapitres → éléments (leçon, fichier, dossier).
+// État de chaque élément : "open" (ouvert), "locked" (visible mais verrouillé), "hidden" (préparé, invisible).
+export const ikey = it => it.k + ":" + it.id;
+export function buildPath(plan = {}, { lessons = [], files = [], folders = [] } = {}, progress = {}) {
+  const L = Object.fromEntries(lessons.map(l => [l.id, l])), F = Object.fromEntries(files.map(f => [f.id, f])), D = Object.fromEntries(folders.map(f => [f.id, f]));
+  const st = plan.state || {}, done = progress?.done || {};
+  let prevOk = true;
+  return (plan.chapters || []).map(ch => ({
+    ...ch,
+    items: (ch.items || []).map(it => {
+      const key = ikey(it), obj = it.k === "l" ? L[it.id] : it.k === "f" ? F[it.id] : D[it.id];
+      const state = st[key] || (it.k === "l" ? "locked" : "open");
+      const row = { ...it, key, obj, state, missing: !obj };
+      if (it.k === "l" && obj) {
+        const pass = obj.passScore ?? 70, score = done[it.id] || 0;
+        row.visible = state !== "hidden" && obj.published !== false;
+        row.score = score; row.passed = score >= pass;
+        row.unlocked = row.visible && (state === "open" || (plan.mode === "auto" && prevOk));
+        if (row.visible) prevOk = row.passed;
+      } else { row.visible = !!obj && state !== "hidden"; row.unlocked = row.visible && state !== "locked"; }
+      return row;
+    }),
+  }));
+}
+// Toutes les leçons d'un parcours, dans l'ordre, à plat
+export const pathLessons = chapters => chapters.flatMap(c => c.items.filter(i => i.k === "l" && i.obj && i.visible));
+export const newId = () => Math.random().toString(36).slice(2, 10);
+
+/* ---------- moteur d'exercices ---------- */
+let Q;
+export function runQuiz(o) { Q = { ...o, list: o.list.map(x => ({ ...x })), i: 0, ok: 0, log: [] }; ask(); }
+function ask() {
+  const m = ui.m;
+  ui.setTitle(Q.title, Q.back);
+  if (Q.i >= Q.list.length) return finish();
+  const x = Q.list[Q.i];
+  let h = `<div class="prog"><i style="width:${Q.i / Q.list.length * 100}%"></i></div><div class="card">`;
+  if (x.mine) h += `<span class="tag OK">✍️ Exercice de votre professeur</span>`;
+  if (x.map) h += MAP_HTML;
+  if (x.t === "q") {
+    if (!x.sh) x.sh = shuf((x.o || []).filter(Boolean).map((t, k) => ({ t, k })));
+    h += `<div class="q">${esc(x.q)}</div>${x.listen ? `<p><button class="btn ghost" data-say="${esc(x.listen)}">🔊 Écouter</button></p>` : ""}<div class="opts">${x.sh.map((o, j) => `<button class="opt" data-j="${j}">${esc(o.t)}</button>`).join("")}</div>`;
+  } else if (x.t === "w" || x.t === "n") {
+    if (x.t === "n" && x.num == null) x.num = Math.floor(Math.random() * ((+x.max || 20) + 1));
+    h += x.t === "n" ? `<div class="q">Écoutez et écrivez le nombre en chiffres.</div><p><button class="btn ghost" data-say="${x.num}">🔊 Écouter</button></p>` : `<div class="q">${esc(x.q)}</div>`;
+    h += `<input type="text" id="inp" autocomplete="off" autocapitalize="off" spellcheck="false" ${x.t === "n" ? 'inputmode="numeric"' : 'placeholder="En espagnol…"'}><p><button class="btn full" id="chk">Vérifier</button></p>`;
+  } else if (x.t === "o") {
+    if (!x.w) x.w = shuf(String(x.a).split(" ").filter(Boolean).map((t, k) => ({ t, k })));
+    x.pick = [];
+    h += `<div class="mute">Remettez les mots dans l'ordre :</div><div class="q">${esc(x.q)}</div><div class="chips ans" id="ans"></div><div class="chips" id="pool">${x.w.map((c, j) => `<button class="chip" data-c="${j}">${esc(c.t)}</button>`).join("")}</div><p><button class="btn full" id="chk">Vérifier</button></p>`;
+  }
+  h += `<div id="fb"></div></div>`;
+  m.innerHTML = h;
+  if (x.listen) speak(x.listen);
+  if (x.t === "n") setTimeout(() => speak(String(x.num)), 200);
+  if (x.t === "q") $$(".opt", m).forEach(b => b.onclick = () => {
+    if ($(".opt.ok", m) || $(".opt.ko", m)) return;
+    const good = x.sh[b.dataset.j].k === 0;
+    b.classList.add(good ? "ok" : "ko");
+    if (!good) $$(".opt", m).forEach(c => { if (x.sh[c.dataset.j].k === 0) c.classList.add("ok"); });
+    result(good, x.o[0], x.x);
+  });
+  if (x.t === "w" || x.t === "n") {
+    const inp = $("#inp"); inp.focus();
+    const chk = () => {
+      if ($("#fb").innerHTML) return; const v = inp.value; if (!v.trim()) return; inp.disabled = true;
+      if (x.t === "n") return result(parseInt(v, 10) === x.num, String(x.num));
+      const ans = (Array.isArray(x.a) ? x.a : [x.a]).filter(Boolean);
+      const ok = ans.some(a => norm(a) === norm(v)), near = !ok && ans.some(a => flat(a) === flat(v));
+      result(ok || near, ans[0] || "", (near ? "Presque parfait : attention aux accents ! " : "") + (x.x || ""));
+    };
+    $("#chk").onclick = chk; inp.onkeydown = e => { if (e.key === "Enter") chk(); };
+  }
+  if (x.t === "o") {
+    const draw = () => {
+      $("#ans").innerHTML = x.pick.map((j, p) => `<button class="chip" data-p="${p}">${esc(x.w[j].t)}</button>`).join("");
+      $$("#pool .chip", m).forEach(b => b.classList.toggle("used", x.pick.includes(+b.dataset.c)));
+    };
+    $("#pool").onclick = e => { const b = e.target.closest(".chip"); if (!b || $("#fb").innerHTML) return; const j = +b.dataset.c; if (!x.pick.includes(j)) { x.pick.push(j); speak(x.w[j].t); draw(); } };
+    $("#ans").onclick = e => { const b = e.target.closest(".chip"); if (!b || $("#fb").innerHTML) return; x.pick.splice(+b.dataset.p, 1); draw(); };
+    $("#chk").onclick = () => { if ($("#fb").innerHTML || !x.pick.length) return; const s = x.pick.map(j => x.w[j].t).join(" "); result(flat(s) === flat(x.a), x.a, x.x); };
+  }
+}
+function result(good, answer, expl) {
+  if (good) Q.ok++;
+  Q.log.push(good ? 1 : 0);
+  $("#fb").innerHTML = `<div class="fb ${good ? "ok" : "ko"}"><b>${good ? "✅ ¡Correcto!" : "❌ Pas tout à fait."}</b> ${good ? "" : `Réponse : <span class="say" data-say="${esc(answer)}">${esc(answer)}</span>`}${expl ? `<div>${esc(expl)}</div>` : ""}</div><p><button class="btn full" id="nx">Continuer →</button></p>`;
+  const c = $("#chk"); if (c) c.style.display = "none";
+  if (/[a-záéíóúñ]/i.test(answer) && !/^\d+$/.test(answer)) speak(answer);
+  $("#nx").onclick = () => { Q.i++; ask(); }; $("#nx").focus();
+}
+async function finish() {
+  const pct = Q.list.length ? Math.round(Q.ok / Q.list.length * 100) : 0;
+  const pass = pct >= (Q.pass ?? 70), gain = Q.ok * 10;
+  const extra = await Q.end(pct, pass, gain);
+  ui.m.innerHTML = `<div class="card center"><div class="big">${pct >= 90 ? "🏆" : pass ? "🎉" : "💪"}</div><h2 style="margin:0">${pct} %</h2><p>${Q.ok} / ${Q.list.length} bonnes réponses${Q.preview ? "" : ` · +${gain} XP`}</p>${extra}</div>`;
+}
+
+// Petits exercices automatiques tirés du vocabulaire
+export function autoVocabEx(vocab, n = 3) {
+  const pool = (vocab || []).filter(v => v && v[0] && v[1]);
+  if (pool.length < 4) return [];
+  return shuf(pool).slice(0, n).map((v, k) => {
+    const wrong = shuf(pool.filter(w => w !== v)).slice(0, 3).map(w => w[1]);
+    return k === 1 ? { t: "q", listen: v[0], q: "Écoutez : que veut dire ce mot ou cette phrase ?", o: [v[1], ...wrong] }
+      : { t: "q", q: `« ${v[0]} » veut dire…`, o: [v[1], ...wrong] };
+  });
+}

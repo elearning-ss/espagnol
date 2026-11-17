@@ -1,0 +1,75 @@
+rules_version = '2';
+// Règles de sécurité de « Paso a paso ».
+// ⚠️ Remplacez votre.email@exemple.com par VOTRE e-mail de professeur.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function isAdmin() {
+      return signedIn() && exists(userDoc()) && get(userDoc()).data.role == 'admin';
+    }
+    function isTeacherEmail() {
+      return signedIn() && request.auth.token.email == 'votre.email@exemple.com';
+    }
+    function activeStudent() {
+      return signedIn() && exists(userDoc()) && get(userDoc()).data.get('disabled', false) != true;
+    }
+
+    // Profils : le prof crée les élèves ; chacun lit son profil ;
+    // un élève peut modifier son prénom, jamais son rôle ni son statut.
+    match /users/{uid} {
+      allow read: if signedIn() && (me() == uid || isAdmin());
+      allow create: if (signedIn() && me() == uid && isTeacherEmail() && request.resource.data.role == 'admin')
+                    || isAdmin();
+      allow update: if isAdmin()
+                    || (signedIn() && me() == uid
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.get('disabled', false) == resource.data.get('disabled', false));
+      allow delete: if isAdmin();
+    }
+
+    // Leçons : lisibles par les élèves connectés, modifiables par le prof seul.
+    match /lessons/{id} {
+      allow read: if activeStudent() || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Parcours personnalisé de chaque élève : écrit par le prof uniquement.
+    match /plans/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Progression (scores, révisions) : écrite par l'élève lui-même.
+    match /progress/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow write: if (signedIn() && me() == uid) || isAdmin();
+    }
+
+    // Bibliothèque : un élève ne voit QUE les dossiers et fichiers qui lui sont attribués.
+    match /folders/{id} {
+      allow read: if isAdmin() || (activeStudent() && me() in resource.data.students);
+      allow write: if isAdmin();
+    }
+    match /files/{id} {
+      allow read: if isAdmin() || (activeStudent() && me() in resource.data.students);
+      allow write: if isAdmin();
+      match /chunks/{n} {
+        allow read: if isAdmin()
+                    || (activeStudent() && me() in get(/databases/$(database)/documents/files/$(id)).data.students);
+        allow write: if isAdmin();
+      }
+    }
+
+    // Parcours types et réglages : réservés au prof (réglages lisibles par tous).
+    match /templates/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}
