@@ -46,8 +46,27 @@ export function speak(t, keep) {
 }
 export function toggleSlow() { voiceState.slow = !voiceState.slow; ls.set("paso_slow", voiceState.slow ? "1" : "0"); }
 document.addEventListener("click", e => { const b = e.target.closest("[data-say]"); if (b && !b.closest(".rte")) speak(b.dataset.say); });
-export const noVoiceWarning = () => (!voiceState.voice && "speechSynthesis" in window)
-  ? `<div class="warn novoice">🔈 Pas de voix espagnole détectée sur cet appareil. Réglages › Accessibilité (ou Langue) › Synthèse vocale › ajoutez « Espagnol (Espagne) ». La lecture marche quand même avec la voix par défaut.</div>` : "";
+// Avertissement « pas de voix espagnole » : affiché seulement après un court délai
+// (les navigateurs chargent leurs voix en différé), fermable et mémorisé.
+export const noVoiceWarning = () => {
+  if (!("speechSynthesis" in window) || ls.get("paso_novoice_ok")) return "";
+  setTimeout(() => {
+    const box = document.querySelector(".novoice"); if (!box) return;
+    if (voiceState.voice) return box.remove();
+    const ua = navigator.userAgent, how = /Windows/.test(ua)
+      ? "Windows : <b>Paramètres › Heure et langue › Voix › Ajouter des voix › Español (España)</b>, puis redémarrez le navigateur. Astuce : Microsoft Edge propose directement des voix espagnoles très naturelles."
+      : /Mac/.test(ua) ? "Mac : <b>Réglages Système › Accessibilité › Contenu énoncé › Voix du système › Gérer les voix › Espagnol (Espagne)</b>."
+      : /iPhone|iPad/.test(ua) ? "iPhone / iPad : <b>Réglages › Accessibilité › Contenu énoncé › Voix › Espagnol</b>."
+      : /Android/.test(ua) ? "Android : <b>Paramètres › Accessibilité › Synthèse vocale › Moteur préféré › Installer les données vocales › Espagnol (Espagne)</b>."
+      : "Ajoutez une voix « Espagnol (Espagne) » dans les réglages de synthèse vocale de votre appareil.";
+    box.innerHTML = `<div class="row" style="align-items:flex-start"><span style="flex:1">🔈 <b>Pas de voix espagnole sur cet appareil.</b> La lecture fonctionne quand même avec la voix par défaut, mais l'accent sera moins bon.<br><small>${how}</small></span>
+      <span class="row tight" style="flex:none"><button class="btn ghost small" data-vt>🔊 Tester</button><button class="ib" data-vx title="Ne plus afficher">✕</button></span></div>`;
+    box.classList.remove("hide");
+    box.querySelector("[data-vt]").onclick = () => speak("Hola, ¿qué tal? Bienvenido a la clase de español.");
+    box.querySelector("[data-vx]").onclick = () => { ls.set("paso_novoice_ok", "1"); box.remove(); };
+  }, 1500);
+  return `<div class="warn novoice hide"></div>`;
+};
 
 /* ---------- leçons ---------- */
 export function cleanLesson(l) {
