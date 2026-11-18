@@ -1,9 +1,9 @@
 // Leçons interactives : liste, éditeur complet, import Word/PDF, exercices.
-import { $, $$, esc, ui, linkify, cleanLesson, runQuiz, autoVocabEx, fmtDate, typeName, ikey } from "./core.js";
+import { $, $$, esc, ui, linkify, cleanLesson, runQuiz, autoVocabEx, fmtDate, typeName, ikey, parseGaps, setAudioResolver } from "./core.js";
 import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast, draggable, dropZone, fileDrop } from "./ui.js";
 import { S, api, fail, clone, saveOrder, lessonById, savePlan, addItemsToPlan, removeItemsFromPlan, planHas, sName, initials, syncAccess, fileById } from "./adm-state.js";
 import { SEED } from "./seed.js";
-import { fileToHtml, compressImage, cleanHtml, parseVocabText, vocabFileToText, uploadFile, mountAudio, isAudioFile, fmtSize, MAX_FILE } from "./files.js";
+import { fileToHtml, compressImage, cleanHtml, parseVocabText, vocabFileToText, uploadFile, mountAudio, isAudioFile, fmtSize, MAX_FILE, fileBlob } from "./files.js";
 
 const sizeOf = o => new Blob([JSON.stringify(o)]).size;
 const sw = (attrs, checked, label) => `<label class="swl"><span class="sw"><input type="checkbox" ${attrs} ${checked ? "checked" : ""}><span></span></span>${label || ""}</label>`;
@@ -113,6 +113,7 @@ async function installSeed(btn, onlyMissing) {
   } catch (e) { fail(e); btn.disabled = false; btn.textContent = "Réessayer"; }
 }
 export function testLesson(l, back, extra = []) {
+  setAudioResolver(id => fileBlob(api(), fileById(id)));
   const list = [...autoVocabEx(l.vocab), ...l.ex, ...extra.map(x => ({ ...x, mine: true }))];
   if (!list.length) return toast("Aucun exercice à tester.");
   runQuiz({ title: "👁️ Test : " + esc(l.title), back, list, pass: l.passScore, preview: true, end: () => { setTimeout(() => { const b = $("#bk"); if (b) b.onclick = back; }); return `<p class="mute">Mode test : rien n'est enregistré.</p><button class="btn" id="bk">Retour</button>`; } });
@@ -350,7 +351,7 @@ export function editLesson(id, tab = "info") {
 
   function ex(p) {
     p.innerHTML = `<div id="exed"></div><p class="mute">En plus de ces exercices, l'élève reçoit 3 questions automatiques tirées du vocabulaire (s'il y a au moins 4 mots). Vous pouvez aussi ajouter des exercices réservés à un élève depuis son parcours.</p>`;
-    exEditor($("#exed"), W.ex, mark, () => { const t = $$(".tabs button")[3]; if (t) t.textContent = `✏️ Exercices (${W.ex.length})`; });
+    exEditor($("#exed"), W.ex, mark, () => { const t = $$(".tabs button")[3]; if (t) t.textContent = `✏️ Exercices (${W.ex.length})`; }, { vocab: () => W.vocab });
   }
 
   function stu(p) {
@@ -417,9 +418,15 @@ function fromEditor(h) {
 export const stateSeg = (attr, st) => `<span class="seg">${[["open", "🔓", "Ouverte"], ["locked", "🔒", "Verrouillée"], ["hidden", "🙈", "Cachée"]].map(([v, i, t]) => `<button class="${st === v ? "on" : ""}" data-st="${attr}|${v}" title="${t}">${i}</button>`).join("")}</span>`;
 
 /* =================== ÉDITEUR D'EXERCICES (réutilisable) =================== */
-const EXT = { q: "Choix multiple", w: "Réponse écrite", o: "Remettre dans l'ordre", n: "Dictée de nombre" };
+const shufArr = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function gapPreview(s) {
+  if (!s || !/\[[^\]]+\]/.test(s)) return `<span class="mute" style="font-size:13px">Mettez chaque mot à trouver entre crochets [ ].</span>`;
+  const parts = parseGaps(s), n = parts.filter(p => p.gap).length;
+  return `<span class="mute" style="font-size:13px">Aperçu (${n} trou${n > 1 ? "s" : ""}) : </span>` + parts.map(p => p.gap ? `<span class="gapprev" title="Réponse : ${esc(p.gap.join(" ou "))}">${esc(p.gap[0])}</span>` : esc(p.t)).join("");
+}
+const EXT = { q: "Choix multiple", w: "Réponse écrite", g: "Texte à trous", o: "Remettre dans l'ordre", p: "Associer les paires", d: "Dictée (écouter et écrire)", l: "Écoute et choisis", n: "Dictée de nombre" };
 let exN = 0;
-export function exEditor(box, arr, onChange, onCount = () => {}) {
+export function exEditor(box, arr, onChange, onCount = () => {}, opts = {}) {
   const uid = "x" + (++exN);
   const draw = () => {
     box.innerHTML = `<div class="list" id="exl_${uid}">${arr.map((x, i) => `<div class="exbox" data-id="${i}">
@@ -429,11 +436,19 @@ export function exEditor(box, arr, onChange, onCount = () => {}) {
     $$("[data-f]", box).forEach(e => e.oninput = e.onchange = () => {
       const x = arr[+e.dataset.i], f = e.dataset.f;
       if (/^o[0-3]$/.test(f)) { x.o = x.o || ["", "", "", ""]; x.o[+f[1]] = e.value; }
-      else if (f === "a" && x.t === "w") x.a = e.value.split("\n").map(s => s.trim()).filter(Boolean);
+      else if (f === "a" && (x.t === "w" || x.t === "d")) x.a = e.value.split("\n").map(s => s.trim()).filter(Boolean);
+      else if (f === "pairs") x.pairs = parseVocabText(e.value).rows.map(r => [r[0], r[1]]);
+      else if (f === "f") { if (e.value) x.f = e.value; else delete x.f; }
       else if (f === "map") x.map = e.checked ? 1 : 0;
       else if (f === "max") x.max = +e.value || 20;
       else x[f] = e.value;
       onChange();
+      if (f === "s" && x.t === "g") { const pv = box.querySelector(`[data-gpv="${e.dataset.i}"]`); if (pv) pv.innerHTML = gapPreview(x.s); }
+      if (f === "pairs") { const pv = box.querySelector(`[data-ppv="${e.dataset.i}"]`); if (pv) pv.textContent = `${(x.pairs || []).length} paire(s) reconnue(s)${(x.pairs || []).length < 3 ? " — il en faut au moins 3" : ""}`; }
+    });
+    $$("[data-fillv]", box).forEach(b => b.onclick = () => {
+      const v = (opts.vocab ? opts.vocab() : []).filter(r => r[0] && r[1]); if (v.length < 3) return toast("Il faut au moins 3 mots dans le vocabulaire de la leçon.");
+      const x = arr[+b.dataset.fillv]; x.pairs = shufArr(v).slice(0, 6).map(r => [r[0], r[1]]); onChange(); draw(); toast(`${x.pairs.length} paires tirées du vocabulaire`);
     });
     $$("[data-ty]", box).forEach(e => e.onchange = () => { const i = +e.dataset.ty; arr[i] = blank(e.value, arr[i]); onChange(); draw(); });
     $$("[data-del]", box).forEach(b => b.onclick = async () => { if (!await confirmDlg("Supprimer cet exercice ?", { ok: "Supprimer", danger: true })) return; arr.splice(+b.dataset.del, 1); onChange(); onCount(); draw(); });
@@ -441,7 +456,9 @@ export function exEditor(box, arr, onChange, onCount = () => {}) {
     $("#add_" + uid).onclick = () => { arr.push(blank($("#nt_" + uid).value)); onChange(); onCount(); draw(); const bx = $$(".exbox", box); bx[bx.length - 1]?.querySelector("input,textarea")?.focus(); };
     sortableList($("#exl_" + uid), ".exbox", ids => { const c = ids.map(i => arr[+i]); arr.splice(0, arr.length, ...c); onChange(); draw(); });
   };
-  const blank = (t, prev = {}) => t === "q" ? { t, q: prev.q || "", o: ["", "", "", ""], x: prev.x || "" } : t === "w" ? { t, q: prev.q || "", a: [], x: prev.x || "" } : t === "o" ? { t, q: prev.q || "", a: "" } : { t: "n", max: 20 };
+  const blank = (t, prev = {}) => t === "q" ? { t, q: prev.q || "", o: ["", "", "", ""], x: prev.x || "" } : t === "w" ? { t, q: prev.q || "", a: [], x: prev.x || "" } : t === "o" ? { t, q: prev.q || "", a: "" }
+    : t === "g" ? { t, q: "", s: "", x: "" } : t === "p" ? { t, q: "", pairs: [] } : t === "d" ? { t, q: "", a: [], x: "" } : t === "l" ? { t, q: "", s: "", o: ["", "", "", ""], x: "" } : { t: "n", max: 20 };
+  const audioSel = (x, i) => { const au = S.files.filter(isAudioFile); return `<label class="f">Son à écouter</label><select data-f="f" data-i="${i}"><option value="">🔊 Voix de synthèse (lit le texte espagnol ci-dessous)</option>${au.map(f => `<option value="${f.id}" ${x.f === f.id ? "selected" : ""}>🎧 ${esc(f.name)}</option>`).join("")}</select>${au.length ? "" : `<div class="mute" style="font-size:12px;margin-top:4px">Astuce : importez vos enregistrements dans la Bibliothèque (ou via 🎧 Fichier audio dans le cours) pour les choisir ici.</div>`}`; };
   const inp = (f, i, v, ph) => `<input type="text" data-f="${f}" data-i="${i}" value="${esc(v ?? "")}" placeholder="${ph}">`;
   const fields = (x, i) => {
     if (x.t === "q") { const o = x.o || []; return `<label class="f">Question</label>${inp("q", i, x.q, "ex. « la casa » veut dire…")}
@@ -454,6 +471,23 @@ export function exEditor(box, arr, onChange, onCount = () => {}) {
       <label class="f">Explication (facultatif)</label>${inp("x", i, x.x, "")}`;
     if (x.t === "o") return `<label class="f">Phrase en français (consigne)</label>${inp("q", i, x.q, "Je peux payer par carte ?")}
       <label class="f">Phrase espagnole correcte (les mots seront mélangés)</label>${inp("a", i, x.a, "¿Puedo pagar con tarjeta?")}`;
+    if (x.t === "g") return `<label class="f">Phrase avec les trous entre crochets — plusieurs réponses possibles séparées par |</label><textarea data-f="s" data-i="${i}" style="min-height:60px" placeholder="Yo [tengo] (tener) dos hermanos y [vivo] (vivir) en Madrid.">${esc(x.s || "")}</textarea>
+      <div class="gpv" data-gpv="${i}">${gapPreview(x.s)}</div>
+      <label class="f">Consigne (facultatif)</label>${inp("q", i, x.q, "Complétez avec le verbe au présent.")}
+      <label class="f">Explication (facultatif)</label>${inp("x", i, x.x, "")}`;
+    if (x.t === "p") return `<label class="f">Paires : une par ligne, <code>espagnol ; français</code> (3 à 8 paires)</label><textarea data-f="pairs" data-i="${i}" style="min-height:110px" placeholder="el perro ; le chien&#10;el gato ; le chat&#10;la casa ; la maison">${esc((x.pairs || []).map(p => p.join(" ; ")).join("\n"))}</textarea>
+      <div class="row tight" style="align-items:center"><span class="mute" data-ppv="${i}" style="font-size:13px">${(x.pairs || []).length} paire(s) reconnue(s)</span>${opts.vocab ? `<button class="btn ghost small" data-fillv="${i}">🎲 Tirer 6 mots du vocabulaire</button>` : ""}</div>
+      <label class="f">Consigne (facultatif)</label>${inp("q", i, x.q, "Associez chaque mot à sa traduction.")}`;
+    if (x.t === "d") return `${audioSel(x, i)}
+      <label class="f">Texte exact à écrire (une ligne par variante acceptée — la 1re est lue par la voix de synthèse)</label><textarea data-f="a" data-i="${i}" style="min-height:60px" placeholder="Me llamo Lucía y vivo en Sevilla.">${esc((x.a || []).join("\n"))}</textarea>
+      <label class="f">Consigne (facultatif)</label>${inp("q", i, x.q, "Dictée : écoutez et écrivez.")}
+      <label class="f">Explication (facultatif)</label>${inp("x", i, x.x, "")}`;
+    if (x.t === "l") { const o = x.o || []; return `${audioSel(x, i)}
+      <label class="f">Ce qui est dit, en espagnol (lu par la voix de synthèse, et affiché après la réponse)</label>${inp("s", i, x.s, "¿Dónde está la estación?")}
+      <label class="f">Question</label>${inp("q", i, x.q, "Que demande la personne ?")}
+      <label class="f">✅ Bonne réponse</label>${inp("o0", i, o[0], "Où est la gare ?")}
+      <label class="f">❌ Mauvaises réponses</label><div class="grid2">${inp("o1", i, o[1], "Fausse 1")}${inp("o2", i, o[2], "Fausse 2")}</div><div style="margin-top:6px">${inp("o3", i, o[3], "Fausse 3 (facultatif)")}</div>
+      <label class="f">Explication (facultatif)</label>${inp("x", i, x.x, "")}`; }
     return `<label class="f">Nombre maximum (un nombre au hasard entre 0 et ce maximum est dicté)</label><input type="number" data-f="max" data-i="${i}" value="${x.max || 20}" style="max-width:140px">`;
   };
   draw();

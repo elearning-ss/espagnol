@@ -1,6 +1,6 @@
 // Espace élève : Leçons · Exercices · Mon compte
-import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName } from "./core.js";
-import { previewFile, fileKind, kindIcon, fmtSize, mountAudio } from "./files.js";
+import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents } from "./core.js";
+import { previewFile, fileKind, kindIcon, fmtSize, mountAudio, fileBlob } from "./files.js";
 import { passwordBox, installCard } from "./ui.js";
 import { authError } from "./fb.js";
 
@@ -13,6 +13,9 @@ export function startStudent(ctx) {
   C.progress = Object.assign({ done: {}, attempts: {}, xp: 0, cards: {}, seen: {} }, C.progress || {});
   C.plan = Object.assign({ chapters: [], state: {}, notes: {}, extra: {} }, C.plan || {});
   C.files = C.files || []; C.folders = C.folders || [];
+  C.progress.weak = Array.isArray(C.progress.weak) ? C.progress.weak : [];
+  C.progress.myVocab = Array.isArray(C.progress.myVocab) ? C.progress.myVocab : [];
+  setAudioResolver(id => { const f = C.files.find(x => x.id === id); return f ? fileBlob(C.api, f) : Promise.reject(new Error("audio")); });
   document.body.classList.remove("admin");
   $("#nav").className = "bottom";
   $("#nav").innerHTML = `<button data-nav="lessons"><b>📚</b>Leçons</button><button data-nav="exercises"><b>✏️</b>Exercices</button><button data-nav="account"><b>👤</b>Mon compte</button>`;
@@ -131,8 +134,10 @@ function lesson(id, tab = "c") {
 function exercises() {
   ui.setTitle("✏️ Exercices");
   const P = path().filter(p => p.unlocked);
-  const cards = deck(), dueN = cards.filter(due).length;
-  let h = prevBanner() + `<div class="card step" id="rev"><div class="n">🃏</div><div class="t"><b>Réviser le vocabulaire</b><span class="mute">${cards.length ? `${dueN} carte${dueN > 1 ? "s" : ""} à revoir aujourd'hui sur ${cards.length}` : "Ouvrez une leçon pour ajouter ses mots"}</span></div>›</div>
+  const all = deck(), dueN = all.filter(due).length, weakN = C.progress.weak.length, carnetN = carnet().length;
+  let h = prevBanner() + `<div class="card step" id="rev"><div class="n">🃏</div><div class="t"><b>Réviser le vocabulaire</b><span class="mute">${all.length ? `${dueN} carte${dueN > 1 ? "s" : ""} à revoir aujourd'hui sur ${all.length}` : "Ouvrez une leçon pour ajouter ses mots"}</span></div>›</div>
+  ${weakN ? `<div class="card step" id="revw"><div class="n">🎯</div><div class="t"><b>Mes mots à revoir</b><span class="mute">${weakN} mot${weakN > 1 ? "s" : ""} ou phrase${weakN > 1 ? "s" : ""} ratés en exercice · ils disparaissent quand vous les maîtrisez</span></div>›</div>` : ""}
+  <div class="card step" id="carn"><div class="n">📒</div><div class="t"><b>Mon carnet de vocabulaire</b><span class="mute">${carnetN ? `${carnetN} mot${carnetN > 1 ? "s" : ""} · les mots de vos cours et de vos découvertes` : "Notez les mots rencontrés en cours, dans un film…"}</span></div>›</div>
   <p class="mute" style="margin:16px 4px 8px">Exercices par leçon</p>`;
   P.forEach(p => {
     const l = p.l, extra = (C.plan.extra?.[l.id] || []).length, n = l.ex.length + extra + (l.vocab.length >= 4 ? 3 : 0);
@@ -143,10 +148,23 @@ function exercises() {
   });
   if (!P.length) h += `<div class="card center mute">Les exercices apparaîtront quand votre professeur aura ouvert une leçon.</div>`;
   ui.m.innerHTML = h;
-  $("#rev").onclick = () => review();
+  $("#rev").onclick = () => review("all");
+  const rw = $("#revw"); if (rw) rw.onclick = () => review("weak");
+  $("#carn").onclick = () => carnetView();
   $$("[data-q]", ui.m).forEach(b => b.onclick = () => exQuiz(b.dataset.q));
 }
 
+// Un exercice raté : le mot ou la phrase part dans « Mes mots à revoir », à réviser dès aujourd'hui
+function addWeak(w) {
+  if (C.preview || !w || !w.it) return;
+  const it = String(w.it).slice(0, 300), cur = C.progress.weak.find(x => x.it === it);
+  if (cur) { cur.n = (cur.n || 1) + 1; cur.at = Date.now(); }
+  else C.progress.weak.unshift({ it, fr: String(w.fr || "").slice(0, 300), ph: w.ph || "", n: 1, at: Date.now() });
+  C.progress.weak = C.progress.weak.slice(0, 200);
+  C.progress.cards[it] = { b: 0, d: today() };
+}
+
+let missT;
 function exQuiz(id) {
   const p = path().find(x => x.l.id === id); if (!p || !p.unlocked) return exercises();
   const l = p.l, mine = (C.plan.extra?.[id] || []).map(x => ({ ...x, mine: true }));
@@ -156,6 +174,7 @@ function exQuiz(id) {
   const pass = l.passScore ?? 70;
   runQuiz({
     title: `${esc(l.emoji)} ${esc(l.title)}`, back: () => exercises(), list, pass, preview: C.preview,
+    onMiss: w => { addWeak({ ...w, src: l.title }); clearTimeout(missT); missT = setTimeout(saveProgress, 1500); },
     end: async (pct, ok, gain) => {
       if (!C.preview) {
         C.progress.done[id] = Math.max(C.progress.done[id] || 0, pct);
@@ -165,33 +184,72 @@ function exQuiz(id) {
       }
       const all = path(), k = all.findIndex(x => x.l.id === id), nx = all[k + 1];
       setTimeout(() => {
-        $$("[data-act]", ui.m).forEach(b => b.onclick = () => ({ again: () => exQuiz(id), course: () => { go("lessons"); lesson(id); }, next: () => { go("lessons"); lesson(nx.l.id); }, list: () => exercises() })[b.dataset.act]());
+        $$("[data-act]", ui.m).forEach(b => b.onclick = () => ({ again: () => exQuiz(id), course: () => { go("lessons"); lesson(id); }, next: () => { go("lessons"); lesson(nx.l.id); }, list: () => exercises(), weak: () => review("weak") })[b.dataset.act]());
       });
+      const wn = C.progress.weak.length;
       return `<p>${ok ? `Leçon réussie, ¡muy bien! (il faut ${pass} %)` : `Il faut ${pass} % pour réussir la leçon. Relisez le cours, puis réessayez : <i>equivocándose se aprende</i>.`}</p>
         ${ok && nx && nx.unlocked ? `<button class="btn full" data-act="next">Leçon suivante : ${esc(nx.l.emoji)} ${esc(nx.l.title)}</button><p></p>` : ""}
         ${ok && nx && !nx.unlocked && C.plan.mode !== "auto" ? `<p class="mute">Votre professeur ouvrira la leçon suivante.</p>` : ""}
+        ${pct < 100 && wn && !C.preview ? `<button class="btn ghost full" data-act="weak">🎯 Revoir mes erreurs (${wn})</button><p></p>` : ""}
         <div class="row"><button class="btn ghost" data-act="again">Recommencer</button><button class="btn ghost" data-act="course">Revoir le cours</button></div><p></p>
         <button class="btn ghost full" data-act="list">Retour aux exercices</button>`;
     }
   });
 }
 
+/* ---------- carnet de vocabulaire (mots du professeur + mots de l'élève) ---------- */
+const carnet = () => [
+  ...(C.plan.vocab || []).filter(v => v && v[0] && v[1]).map(v => ({ it: v[0], fr: v[1], ph: v[2] || "", src: "Ajouté par votre professeur", prof: true })),
+  ...C.progress.myVocab.filter(v => v && v[0] && v[1]).map((v, i) => ({ it: v[0], fr: v[1], ph: v[2] || "", src: "Mon carnet", i })),
+];
+function carnetView() {
+  ui.setTitle("📒 Mon carnet", () => exercises());
+  const L = carnet();
+  ui.m.innerHTML = prevBanner() + `<div class="card"><b>Ajouter un mot</b><p class="mute" style="margin:4px 0 8px">Un mot entendu en cours, dans une série, une chanson… Il rejoint vos révisions.</p>
+    <div class="grid2"><input type="text" id="cv_es" placeholder="En espagnol : la playa" autocomplete="off" autocapitalize="off" spellcheck="false"><input type="text" id="cv_fr" placeholder="En français : la plage" autocomplete="off"></div>
+    ${accentBar()}<p><button class="btn" id="cv_add">Ajouter au carnet</button></p></div>
+    <div class="card">${L.length ? L.map(c => `<div class="voc" data-say="${esc(c.it)}"><div><div class="it">${esc(c.it)}</div>${c.ph ? `<div class="ph">[${esc(c.ph)}]</div>` : ""}<div class="mute">${esc(c.fr)}</div>${c.prof ? `<span class="tag OK" style="margin-top:4px;display:inline-block">de votre professeur</span>` : ""}</div><span class="sp">🔊</span>${c.prof ? "" : `<button class="ib" data-del="${c.i}" title="Supprimer" aria-label="Supprimer">✕</button>`}</div>`).join("") : `<p class="mute">Votre carnet est vide pour l'instant.</p>`}</div>
+    ${L.length ? `<button class="btn full" id="cv_rev">🃏 Réviser mon carnet</button>` : ""}`;
+  let last = $("#cv_es"); [$("#cv_es"), $("#cv_fr")].forEach(i => i.onfocus = () => last = i);
+  bindAccents(ui.m, () => last);
+  const add = async () => {
+    if (C.preview) return ui.toast("Aperçu : rien n'est enregistré.");
+    const es = $("#cv_es").value.trim(), fr = $("#cv_fr").value.trim();
+    if (!es || !fr) return ui.toast("Remplissez l'espagnol et le français.");
+    C.progress.myVocab.unshift([es, fr, ""]); await saveProgress(); ui.toast("Ajouté ✓"); carnetView();
+  };
+  $("#cv_add").onclick = add; $("#cv_fr").onkeydown = e => { if (e.key === "Enter") add(); };
+  $$("[data-del]", ui.m).forEach(b => b.onclick = async e => { e.stopPropagation(); if (C.preview) return; C.progress.myVocab.splice(+b.dataset.del, 1); await saveProgress(); carnetView(); });
+  const r = $("#cv_rev"); if (r) r.onclick = () => review("carnet");
+}
+
 /* ---------- révision (boîtes de Leitner) ---------- */
 const GAPS = [0, 1, 2, 4, 8, 16, 32];
-const deck = () => path().filter(p => p.unlocked && C.progress.seen[p.l.id]).flatMap(p => p.l.vocab.filter(v => v[0] && v[1]).map(v => ({ it: v[0], fr: v[1], ph: v[2], src: p.l.title })));
+function deck(mode = "all") {
+  const weak = C.progress.weak.map(w => ({ it: w.it, fr: w.fr, ph: w.ph || "", src: "🎯 À revoir (erreur en exercice)", weak: true }));
+  if (mode === "weak") return weak;
+  if (mode === "carnet") return carnet();
+  const lessons = path().filter(p => p.unlocked && C.progress.seen[p.l.id]).flatMap(p => p.l.vocab.filter(v => v[0] && v[1]).map(v => ({ it: v[0], fr: v[1], ph: v[2], src: p.l.title })));
+  const seen = new Set(), out = [];
+  for (const c of [...weak, ...carnet(), ...lessons]) { const k = c.it.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(c); } }
+  return out;
+}
 const due = c => { const k = C.progress.cards[c.it]; return !k || k.d <= today(); };
 let R;
-function review() {
-  ui.setTitle("🃏 Réviser", () => exercises());
-  const d = deck().filter(due);
-  if (!d.length) { ui.m.innerHTML = `<div class="card center"><div class="big">☕</div><p>${deck().length ? "Rien à réviser aujourd'hui. ¡Hasta mañana!" : "Aucune carte : ouvrez d'abord une leçon."}</p><button class="btn" id="bk">Retour</button></div>`; $("#bk").onclick = exercises; return; }
-  R = { list: shuf(d).slice(0, 20), i: 0, flip: false, ok: 0 };
+function review(mode = "all") {
+  const titles = { all: "🃏 Réviser", weak: "🎯 Mes mots à revoir", carnet: "📒 Réviser mon carnet" };
+  ui.setTitle(titles[mode], () => exercises());
+  const src = deck(mode), d = mode === "all" ? src.filter(due) : src;
+  if (!d.length) { ui.m.innerHTML = `<div class="card center"><div class="big">☕</div><p>${src.length ? "Rien à réviser aujourd'hui. ¡Hasta mañana!" : mode === "weak" ? "Aucune erreur à revoir. ¡Perfecto!" : "Aucune carte : ouvrez d'abord une leçon."}</p><button class="btn" id="bk">Retour</button></div>`; $("#bk").onclick = exercises; return; }
+  // les erreurs passent en premier, puis le reste mélangé
+  const list = [...shuf(d.filter(c => c.weak)), ...shuf(d.filter(c => !c.weak))].slice(0, 20);
+  R = { list, i: 0, flip: false, ok: 0, mode };
   ui.m.innerHTML = `<div class="card"><label><input type="checkbox" id="dir" ${C.progress.frFirst ? "checked" : ""}> Afficher d'abord le français (plus difficile)</label></div><button class="btn full" id="go">Commencer (${R.list.length} cartes)</button>`;
   $("#dir").onchange = e => { C.progress.frFirst = e.target.checked; saveProgress(); };
   $("#go").onclick = card;
 }
 function card() {
-  if (R.i >= R.list.length) { ui.m.innerHTML = `<div class="card center"><div class="big">✨</div><p>Session terminée : ${R.ok} / ${R.list.length} connues du premier coup.</p><button class="btn" id="bk">Retour</button></div>`; $("#bk").onclick = exercises; return; }
+  if (R.i >= R.list.length) { ui.m.innerHTML = `<div class="card center"><div class="big">✨</div><p>Session terminée : ${R.ok} / ${R.list.length} connues du premier coup.</p>${C.progress.weak.length && R.mode !== "weak" ? `<p class="mute">Il vous reste ${C.progress.weak.length} mot(s) à revoir.</p>` : ""}<button class="btn" id="bk">Retour</button></div>`; $("#bk").onclick = exercises; return; }
   const c = R.list[R.i], fr = C.progress.frFirst;
   ui.m.innerHTML = `<div class="prog"><i style="width:${R.i / R.list.length * 100}%"></i></div>
   <div class="card flash" id="fl"><div class="mute" style="font-size:13px;font-weight:400">${esc(c.src)}</div><div>${esc(fr ? c.fr : c.it)}</div>
@@ -201,7 +259,14 @@ function card() {
   if (!fr && !R.flip) speak(c.it);
   $("#fl").onclick = () => { if (!R.flip) { R.flip = true; if (fr) speak(c.it); card(); } };
   if (R.flip) {
-    $("#yes").onclick = () => { const k = C.progress.cards[c.it] || { b: 0 }; k.b = Math.min(k.b + 1, GAPS.length - 1); k.d = today() + GAPS[k.b]; C.progress.cards[c.it] = k; if (!c.retry) R.ok++; saveProgress(); R.i++; R.flip = false; card(); };
+    $("#yes").onclick = () => {
+      const k = C.progress.cards[c.it] || { b: 0 };
+      if (k.last !== today()) { k.b = Math.min(k.b + 1, GAPS.length - 1); k.last = today(); } // un seul niveau gagné par jour : vraie répétition espacée
+      k.d = today() + Math.max(1, GAPS[k.b]); C.progress.cards[c.it] = k;
+      // une erreur est « maîtrisée » après 3 bonnes réponses espacées : elle quitte la liste
+      if (k.b >= 3) C.progress.weak = C.progress.weak.filter(w => w.it !== c.it);
+      if (!c.retry) R.ok++; saveProgress(); R.i++; R.flip = false; card();
+    };
     $("#no").onclick = () => { C.progress.cards[c.it] = { b: 0, d: today() }; saveProgress(); R.list.push({ ...c, retry: 1 }); R.i++; R.flip = false; card(); };
   }
 }

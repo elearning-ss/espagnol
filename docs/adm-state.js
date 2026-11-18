@@ -25,7 +25,7 @@ export async function reload() {
 export function sortLessons() { const i = id => { const k = S.order.indexOf(id); return k < 0 ? 1e6 : k; }; S.lessons.sort((a, b) => i(a.id) - i(b.id)); }
 export function normPlan(p = {}) {
   const { id, ...rest } = p;
-  return { mode: "manual", chapters: [], state: {}, notes: {}, extra: {}, message: "", ...rest };
+  return { mode: "manual", chapters: [], state: {}, notes: {}, extra: {}, message: "", vocab: [], ...rest };
 }
 export const lessonById = id => S.lessons.find(l => l.id === id);
 export const fileById = id => S.files.find(f => f.id === id);
@@ -53,7 +53,11 @@ export async function syncAccess() {
     const p = S.plans[s.id]; if (!p || s.disabled) continue;
     for (const ch of p.chapters) for (const it of ch.items) {
       if (it.k === "f") add("f:" + it.id, s.id);
-      if (it.k === "l") { const l = lessonById(it.id); if (l && l.course) for (const m of String(l.course).matchAll(/data-file="([^"]+)"/g)) add("f:" + m[1], s.id); } // audios des leçons
+      if (it.k === "l") { // audios des leçons : dans le cours, les exercices, et les exercices perso de l'élève
+        const l = lessonById(it.id);
+        if (l && l.course) for (const m of String(l.course).matchAll(/data-file="([^"]+)"/g)) add("f:" + m[1], s.id);
+        for (const x of [...(l?.ex || []), ...(p.extra?.[it.id] || [])]) if (x && x.f) add("f:" + x.f, s.id);
+      }
       if (it.k === "d" && folderById(it.id)) {
         const all = [folderById(it.id), ...descendants(it.id)];
         all.forEach(d => { add("d:" + d.id, s.id); folderFiles(d.id).forEach(f => add("f:" + f.id, s.id)); });
@@ -71,6 +75,7 @@ export async function savePlan(uid, plan) {
   // nettoyage : notes / exercices vides
   Object.keys(plan.notes || {}).forEach(k => { if (!String(plan.notes[k]).trim()) delete plan.notes[k]; });
   Object.keys(plan.extra || {}).forEach(k => { if (!plan.extra[k]?.length) delete plan.extra[k]; });
+  plan.vocab = (plan.vocab || []).filter(v => v && v[0] && v[1]);
   await api().replace("plans/" + uid, plan);
   S.plans[uid] = clone(plan);
   await syncAccess();

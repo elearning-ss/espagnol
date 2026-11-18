@@ -5,7 +5,7 @@ import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, 
 import { pathBuilder } from "./adm-path.js";
 import { DEMO } from "./fb.js";
 import { startStudent } from "./student.js";
-import { fileKind, kindIcon } from "./files.js";
+import { fileKind, kindIcon, parseVocabText } from "./files.js";
 
 /* ---------- statistiques ---------- */
 export function stats(s) {
@@ -88,7 +88,7 @@ export function studentDetail(uid, tab = "path") {
     ui.m.innerHTML = `<div class="card shead"><div class="row tight" style="align-items:center">${av(s, "xl")}<div style="flex:1;min-width:200px"><h2 style="margin:0">${esc(sName(s))}</h2><div class="mute">${esc(s.email)}${s.disabled ? ' · <span class="tag D">désactivé</span>' : ""}</div></div>
         <button class="btn ghost small" id="s_prev">👁️ Voir comme l'élève</button><button class="ib" id="s_more" title="Plus d'actions">⋯</button></div>
       <div class="kpi" style="margin:12px 0 0"><div><b>${st.passed}/${st.total}</b><span class="mute">leçons réussies</span></div><div><b>${st.open}</b><span class="mute">leçons ouvertes</span></div><div><b>${st.docs}</b><span class="mute">documents</span></div><div><b>${st.att}</b><span class="mute">séries d'exercices</span></div><div><b style="font-size:15px">${fmtDate(st.last)}</b><span class="mute">dernière activité</span></div></div></div>
-    <div class="tabs"><button data-t="path" class="${tab === "path" ? "on" : ""}">🧭 Parcours</button><button data-t="track" class="${tab === "track" ? "on" : ""}">📊 Suivi</button><button data-t="set" class="${tab === "set" ? "on" : ""}">⚙️ Réglages</button></div>
+    <div class="tabs"><button data-t="path" class="${tab === "path" ? "on" : ""}">🧭 Parcours</button><button data-t="track" class="${tab === "track" ? "on" : ""}">📊 Suivi</button><button data-t="voc" class="${tab === "voc" ? "on" : ""}">📒 Vocabulaire</button><button data-t="set" class="${tab === "set" ? "on" : ""}">⚙️ Réglages</button></div>
     <div id="pane"></div>
     <div class="sticky-save"><span class="mute" style="margin-right:auto">${P.mode === "auto" ? "Déblocage automatique" : "Déblocage manuel"} · Ctrl+S pour enregistrer</span><button class="btn ghost hide" id="pundo">↩️ Annuler les modifications</button><button class="btn" id="psave" ${dirty ? "" : "disabled"}>${dirty ? "💾 Enregistrer" : "✓ Enregistré"}</button></div>`;
     if (dirty) $("#pundo").classList.remove("hide");
@@ -119,6 +119,7 @@ export function studentDetail(uid, tab = "path") {
       pathBuilder(holder, P, { kind: "student", uid, progress: pr, onChange: mark, onTestBack: () => S.C.restart("student", uid) });
     }
     if (tab === "track") track(pane);
+    if (tab === "voc") vocTab(pane);
     if (tab === "set") settings(pane);
   };
 
@@ -130,6 +131,20 @@ export function studentDetail(uid, tab = "path") {
       ${rows.map(({ c, i }) => { const at = pr.attempts?.[i.id] || []; return `<tr><td>${esc(i.obj.emoji)} ${esc(i.obj.title)}<br><small class="mute">${esc(c.title)}</small></td><td>${i.state === "hidden" ? "🙈 cachée" : i.unlocked ? "🔓 ouverte" : "🔒 verrouillée"}</td><td>${i.score ? `<b style="color:${i.passed ? "var(--ok)" : "var(--r)"}">${i.score} %</b>` : "—"}</td><td>${at.length || ""}</td><td>${spark(at)}</td><td>${at.length ? fmtDate(at[at.length - 1].at) : "—"}</td></tr>`; }).join("") || `<tr><td colspan="6" class="mute">Aucune leçon dans le parcours.</td></tr>`}</tbody></table></div></div>
       <div class="card"><b>Activité récente</b>${recent.map(r => { const l = S.lessons.find(x => x.id === r.id); return `<div class="vrow">${fmtDate(r.at)} · ${l ? esc(l.emoji + " " + l.title) : "Leçon supprimée"} · <b>${r.pct} %</b></div>`; }).join("") || `<p class="mute">Pas encore d'activité.</p>`}</div>
       <div class="card"><b>Documents accessibles</b>${S.files.filter(f => (f.students || []).includes(uid)).map(f => `<div class="vrow">${kindIcon(fileKind(f.name, f.type))} ${esc(f.name)}</div>`).join("") || `<p class="mute">Aucun document. Glissez-en depuis la bibliothèque dans son parcours.</p>`}</div>`;
+  }
+  function vocTab(p) {
+    P.vocab = Array.isArray(P.vocab) ? P.vocab : [];
+    const mine = (pr.myVocab || []).filter(v => v && v[0]), weak = pr.weak || [];
+    p.innerHTML = `<div class="card"><b>📒 Mots ajoutés par vous pour ${esc(sName(s))}</b><p class="mute" style="margin:4px 0 8px">Ils apparaissent dans son carnet et dans ses révisions. Idéal pour les mots vus en séance.</p>
+      <div class="list" id="pv">${P.vocab.map((v, i) => `<div class="item" style="gap:6px"><div class="grid3" style="flex:1"><input type="text" data-pv="${i}|0" value="${esc(v[0])}" placeholder="Espagnol"><input type="text" data-pv="${i}|1" value="${esc(v[1])}" placeholder="Français"><input type="text" data-pv="${i}|2" value="${esc(v[2] || "")}" placeholder="Prononciation"><button class="ib" data-pvdel="${i}" title="Supprimer">🗑️</button></div></div>`).join("") || '<p class="mute">Aucun mot pour l\'instant.</p>'}</div>
+      <p class="row tight"><button class="btn small" id="pv_add">+ Ajouter un mot</button></p>
+      <details><summary>📋 Coller une liste (Excel, Word, « mot ; traduction »…)</summary><textarea id="pv_paste" placeholder="la playa ; la plage&#10;el coche = la voiture" style="margin-top:8px"></textarea><p><button class="btn ghost small" id="pv_imp">Ajouter ces mots</button></p></details></div>
+      <div class="card"><b>🎯 Ses mots ratés en exercice</b> <span class="mute">(${weak.length})</span>${weak.length ? `<div class="scroll"><table class="tlist"><thead><tr><th>Espagnol</th><th>Français / contexte</th><th>Erreurs</th><th>Dernière fois</th></tr></thead><tbody>${weak.slice(0, 40).map(w => `<tr><td><b>${esc(w.it)}</b></td><td>${esc(w.fr)}</td><td>${w.n || 1}</td><td>${fmtDate(w.at)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="mute">Aucune erreur en attente : ses erreurs disparaissent d'ici quand il les maîtrise en révision.</p>`}</div>
+      <div class="card"><b>✍️ Son propre carnet</b> <span class="mute">(${mine.length})</span>${mine.length ? mine.map(v => `<div class="vrow"><b>${esc(v[0])}</b> — ${esc(v[1])}</div>`).join("") : `<p class="mute">Il n'a pas encore ajouté de mots lui-même.</p>`}</div>`;
+    $$("[data-pv]", p).forEach(e => e.oninput = () => { const [i, k] = e.dataset.pv.split("|"); P.vocab[+i][+k] = e.value; mark(); });
+    $$("[data-pvdel]", p).forEach(b => b.onclick = () => { P.vocab.splice(+b.dataset.pvdel, 1); mark(); vocTab(p); });
+    $("#pv_add").onclick = () => { P.vocab.push(["", "", ""]); mark(); vocTab(p); const ins = $$('[data-pv$="|0"]', p); ins[ins.length - 1]?.focus(); };
+    $("#pv_imp").onclick = () => { const r = parseVocabText($("#pv_paste").value).rows; if (!r.length) return toast("Aucun mot reconnu."); P.vocab.push(...r); mark(); vocTab(p); toast(`${r.length} mot(s) ajouté(s). Pensez à enregistrer.`); };
   }
   function settings(p) {
     p.innerHTML = `<div class="card"><label class="f">Nom de l'élève</label><div class="row"><input type="text" id="s_name" value="${esc(s.name || "")}"><button class="btn ghost" id="s_nsave" style="flex:none">Enregistrer le nom</button></div></div>

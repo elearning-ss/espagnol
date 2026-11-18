@@ -123,7 +123,7 @@ export function pathBuilder(box, plan, opts) {
         <p class="row tight"><button class="btn ghost small" data-tst>👁️ Tester comme l'élève</button><button class="btn ghost small" data-cls>Fermer</button></p>`;
       pb.querySelector(".pn").oninput = e => { plan.notes[id] = e.target.value; opts.onChange(); };
       plan.extra[id] = plan.extra[id] || [];
-      exEditor(pb.querySelector(".px"), plan.extra[id], opts.onChange);
+      exEditor(pb.querySelector(".px"), plan.extra[id], opts.onChange, () => {}, { vocab: () => (l?.vocab || []) });
       pb.querySelector("[data-tst]").onclick = () => { const back = opts.onTestBack || (() => draw()); testLesson(l, back, plan.extra[id]); };
       pb.querySelector("[data-cls]").onclick = () => { openPerso.delete(id); draw(); };
     });
