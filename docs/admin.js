@@ -141,7 +141,7 @@ async function backup(withFiles) {
       app: "paso-a-paso", v: 3, date: new Date().toISOString(), withFiles: !!withFiles,
       order: S.order, lessons: S.lessons, templates: S.templates,
       users, plans: Object.entries(S.plans).map(([id, p]) => ({ id, ...p })), progress: Object.entries(S.progress).map(([id, p]) => ({ id, ...p })),
-      folders: S.folders, files: S.files, fileData: {}, threads: [], writings: [],
+      folders: S.folders, files: S.files, fileData: {}, threads: [], writings: [], returns: [],
     };
     msg("Messages et rédactions…");
     try {
@@ -149,6 +149,11 @@ async function backup(withFiles) {
         const th = await a.get("threads/" + s.id);
         if (th) data.threads.push({ id: s.id, ...th, msgs: await a.list(`threads/${s.id}/msgs`) });
         const ws = await a.list(`writings/${s.id}/items`); if (ws.length) data.writings.push({ id: s.id, items: ws });
+        for (const r of await a.list(`returns/${s.id}/items`)) {
+          const it = { uid: s.id, ...r };
+          if (withFiles) it.data = (await Promise.all(Array.from({ length: r.chunks || 0 }, (_, k) => a.get(`returns/${s.id}/items/${r.id}/chunks/${k}`)))).map(p => p?.d || "");
+          data.returns.push(it);
+        }
       }
     } catch (e) { /* règles pas encore à jour : sauvegarde sans messages */ }
     if (withFiles) {
@@ -207,6 +212,11 @@ async function restore(file) {
     try {
       for (const t of d.threads || []) { const { id, msgs = [], ...th } = t; await a.set("threads/" + id, th, false); for (const m of msgs) await a.set(`threads/${id}/msgs/${m.id}`, strip(m), false); }
       for (const w of d.writings || []) for (const it of w.items || []) await a.set(`writings/${w.id}/items/${it.id}`, strip(it), false);
+      for (const r of (d.returns || []).filter(r => r.data)) {
+        const { uid, data: parts, base, ...meta } = r, b = `returns/${uid}/items`;
+        for (let k = 0; k < parts.length; k++) await a.set(`${b}/${r.id}/chunks/${k}`, { d: parts[k] }, false);
+        await a.set(`${b}/${r.id}`, strip(meta), false);
+      }
     } catch (e) { toast("Messages et rédactions non restaurés : règles Firebase à mettre à jour.", 5000); }
   }
   await reload(); await reloadSocial(); await syncAccess();

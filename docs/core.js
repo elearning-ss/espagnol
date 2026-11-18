@@ -314,6 +314,7 @@ export function hwStatus(hw, { lessons = [], files = [] } = {}, progress = {}) {
       const f = files.find(x => x.id === it.id); ok = !!f; label = f ? `📄 ${f.name}` : "Document supprimé";
       done = (progress.opened?.[it.id] || 0) >= at;
     } else if (it.k === "r") { label = "🃏 Réviser le vocabulaire"; done = (progress.revAt || 0) >= at; }
+    else if (it.k === "u") { label = "📤 Rendre ma copie (photo ou fichier)"; done = (progress.ret?.[hw.id] || 0) >= at; }
     else { label = "✍️ " + (it.txt || ""); done = !!ticks[i]; }
     return { ...it, i, label, done, ok };
   });

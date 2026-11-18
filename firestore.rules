@@ -93,6 +93,18 @@ service cloud.firestore {
       allow delete: if isAdmin() || (signedIn() && me() == uid && resource.data.status == 'draft');
     }
 
+    // Copies rendues par l'élève pour un devoir (photo ou fichier, découpés en morceaux).
+    match /returns/{uid}/items/{id} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow create: if isAdmin() || (activeStudent() && me() == uid && request.resource.data.size <= 15728640);
+      allow update: if isAdmin();
+      allow delete: if isAdmin() || (activeStudent() && me() == uid);
+      match /chunks/{n} {
+        allow read: if (signedIn() && me() == uid) || isAdmin();
+        allow create, delete: if isAdmin() || (activeStudent() && me() == uid);
+      }
+    }
+
     // Parcours types et réglages : réservés au prof (réglages lisibles par tous).
     match /templates/{id} {
       allow read, write: if isAdmin();

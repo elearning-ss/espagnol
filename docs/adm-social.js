@@ -4,6 +4,7 @@ import { modal, confirmDlg, promptDlg, toast } from "./ui.js";
 import { S, api, fail, studentById, sName, initials, pickStudents } from "./adm-state.js";
 import { chatBox, stopPoll, unreadFor, rulesHint, loadWritings, W_STATUS, wordCount, correctionHtml, bindMarks } from "./social.js";
 import { loadPrivacy, privacyHtml, DEFAULT_PRIVACY } from "./privacy.js";
+import { deleteFile } from "./files.js";
 
 const av = (s, cls = "") => `<span class="av ${cls}">${esc(initials(s))}</span>`;
 
@@ -12,7 +13,9 @@ export async function reloadSocial() {
   S.socialErr = null;
   try { const T = await api().list("threads"); S.threads = Object.fromEntries(T.map(t => [t.id, t])); }
   catch (e) { S.threads = {}; S.socialErr = e; }
-  S.writings = {};
+  S.writings = {}; S.returns = {};
+  try { await Promise.all(S.students.map(async s => { const b = `returns/${s.id}/items`; S.returns[s.id] = (await api().list(b)).map(r => ({ ...r, base: b })); })); }
+  catch (e) { S.socialErr = S.socialErr || e; }
   try { await Promise.all(S.students.map(async s => { S.writings[s.id] = await loadWritings(api(), s.id); })); }
   catch (e) { S.socialErr = S.socialErr || e; }
 }
@@ -126,6 +129,8 @@ async function delWriting(uid, w) {
 export async function purgeSocial(uid) {
   try { for (const m of await api().list(`threads/${uid}/msgs`)) await api().del(`threads/${uid}/msgs/${m.id}`); await api().del("threads/" + uid); } catch (e) {}
   try { for (const w of await api().list(`writings/${uid}/items`)) await api().del(`writings/${uid}/items/${w.id}`); } catch (e) {}
+  try { const b = `returns/${uid}/items`; for (const r of await api().list(b)) await deleteFile(api(), { ...r, base: b }); } catch (e) {}
+  delete S.returns?.[uid];
   delete S.threads?.[uid]; delete S.writings?.[uid];
 }
 

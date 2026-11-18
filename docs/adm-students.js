@@ -7,7 +7,7 @@ import { DEMO } from "./fb.js";
 import { startStudent } from "./student.js";
 import { purgeSocial, assignTopic, unreadCount, toCorrect } from "./adm-social.js";
 import { unreadFor } from "./social.js";
-import { fileKind, kindIcon, parseVocabText, uploadFile, fmtSize, MAX_FILE } from "./files.js";
+import { fileKind, kindIcon, parseVocabText, uploadFile, fmtSize, MAX_FILE, previewFile } from "./files.js";
 
 /* ---------- statistiques ---------- */
 export function stats(s) {
@@ -147,6 +147,7 @@ export function studentDetail(uid, tab = "path") {
       ${edit ? `<span class="row tight" style="flex:none"><button class="ib" data-hwe="${h.id}" title="Modifier">✏️</button><button class="ib" data-hwd="${h.id}" title="Supprimer">🗑️</button></span>` : ""}</div>
       ${h.note ? `<div class="mute" style="white-space:pre-wrap">${esc(h.note)}</div>` : ""}
       ${st.items.map(it => `<div class="hw-it ${it.done ? "done" : ""}" style="cursor:default"><span class="ck">${it.done ? "✓" : ""}</span><span class="lb">${esc(it.label)}</span></div>`).join("")}
+      ${(() => { const R = (S.returns?.[uid] || []).filter(r => r.hw === h.id); return R.length ? `<div class="hw-ret"><b style="width:100%">📤 Copie rendue :</b>${R.map(r => `<span class="rchip" data-rv="${r.id}">${kindIcon(fileKind(r.name, r.type))} ${esc(r.name)} <small class="mute">${fmtDate(r.createdAt)}</small>${r.seenT ? "" : ` <span class="badge">nouveau</span>`}</span>`).join("")}</div>` : ""; })()}
       <small class="mute">Donné le ${fmtDate(h.at)}${h.due ? ` · à faire pour ${esc(fmtDue(h.due))}` : ""}</small></div>`;
   }
   function hwTab(p) {
@@ -155,6 +156,11 @@ export function studentDetail(uid, tab = "path") {
     p.innerHTML = `<div class="card row tight" style="align-items:center"><div style="flex:1"><b>📌 Devoirs de ${esc(sName(s))}</b><div class="mute">Ils s'affichent en haut de son espace avec la date. Leçons, documents et révision se cochent tout seuls quand il les fait.</div></div><button class="btn" id="hw_new">+ Donner un devoir</button></div>
       ${L.map(x => hwCard(x.h)).join("") || `<div class="card center mute">Aucun devoir pour l'instant.</div>`}`;
     $("#hw_new").onclick = () => hwEdit();
+    $$("[data-rv]", p).forEach(b => b.onclick = async () => {
+      const r = (S.returns[uid] || []).find(x => x.id === b.dataset.rv); if (!r) return;
+      previewFile(api(), r);
+      if (!r.seenT) { r.seenT = Date.now(); try { await api().set(`${r.base}/${r.id}`, { seenT: r.seenT }); } catch (e) {} render(); }
+    });
     $$("[data-hwe]", p).forEach(b => b.onclick = () => hwEdit(P.homework.find(h => h.id === b.dataset.hwe)));
     $$("[data-hwd]", p).forEach(b => b.onclick = async () => { if (!await confirmDlg("Supprimer ce devoir ?", { ok: "Supprimer", danger: true })) return; P.homework = P.homework.filter(h => h.id !== b.dataset.hwd); mark(); await save(); render(); });
   }
@@ -175,6 +181,7 @@ export function studentDetail(uid, tab = "path") {
       <div class="hwdrop" id="hw_drop" tabindex="0"><b>📎 Déposer un devoir tout fait</b><span class="mute">Glissez ici un fichier (Word, PDF, image, audio…) ou cliquez pour le choisir · ${fmtSize(MAX_FILE)} max.</span><input type="file" id="hw_file" multiple hidden></div>
       <div class="hwpick" id="hw_docs"></div>
       <label class="hwr"><input type="checkbox" id="hw_r" ${has("r") ? "checked" : ""}> 🃏 Faire une séance de révision du vocabulaire</label>
+      <label class="hwr"><input type="checkbox" id="hw_u" ${has("u") ? "checked" : ""}> 📤 Me rendre sa copie (photo de sa feuille ou fichier)</label>
       <label class="f">Autres consignes <small class="mute">(une par ligne, l'élève les coche lui-même)</small></label><textarea id="hw_x" rows="3" placeholder="ex. Écrire 5 phrases sur ton week-end&#10;Regarder un épisode en espagnol">${esc(free)}</textarea>`;
     // documents proposés : ceux auxquels l'élève a accès, ceux déjà dans le devoir, ceux qu'on vient de déposer ; « toute la bibliothèque » sur demande
     const picked = new Set(h.items.filter(i => i.k === "f").map(i => i.id));
@@ -212,6 +219,7 @@ export function studentDetail(uid, tab = "path") {
         ...$$("[data-hl]:checked", B).map(e => ({ k: "l", id: e.dataset.hl })),
         ...(drawDocs(B), [...picked].filter(id => S.files.some(f => f.id === id)).map(id => ({ k: "f", id }))),
         ...($("#hw_r", B).checked ? [{ k: "r" }] : []),
+        ...($("#hw_u", B).checked ? [{ k: "u" }] : []),
         ...$("#hw_x", B).value.split("\n").map(x => x.trim()).filter(Boolean).map(txt => ({ k: "t", txt })),
       ];
       if (!items.length) { toast("Choisissez au moins une chose à faire."); return false; }
@@ -392,6 +400,8 @@ export function dashboardView() {
     const pr = S.progress[s.id] || {};
     for (const h of plan.homework || []) {
       const st = hwStatus(h, { lessons: S.lessons, files: S.files }, pr);
+      const newR = (S.returns?.[s.id] || []).filter(r => r.hw === h.id && !r.seenT).length;
+      if (newR) todo.unshift({ s, ic: "📤", txt: `a rendu sa copie pour « ${esc(h.title)} » (${newR} fichier${newR > 1 ? "s" : ""})`, btn: "Voir la copie", act: () => S.C.go("student", s.id, "hw") });
       if (st.late) todo.push({ s, ic: "⏰", txt: `n'a pas fini le devoir « ${esc(h.title)} » (${st.nd}/${st.n}, ${esc(st.when)})`, btn: "Voir ses devoirs", act: () => S.C.go("student", s.id, "hw") });
       else if (st.done && h.due && h.due >= isoDay(new Date(Date.now() - 3 * 864e5))) todo.push({ s, ic: "✅", txt: `a terminé le devoir « ${esc(h.title)} »`, btn: "Préparer la séance", act: () => S.C.go("student", s.id, "prep") });
     }

@@ -416,3 +416,6 @@ details.pol .policy{max-height:45vh;overflow:auto;margin-top:8px}
 label.ck{display:flex;gap:10px;align-items:flex-start;margin:10px 0;cursor:pointer;line-height:1.4}label.ck input{margin-top:3px;flex:none;width:18px;height:18px}
 .hwdrop{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer;display:flex;flex-direction:column;gap:2px;margin-bottom:8px;transition:.15s}
 .hwdrop:hover,.hwdrop:focus,.hwdrop.over{border-color:var(--g);background:#fbeceb;outline:none}
+.hw-ret{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 2px}
+.rchip{display:inline-flex;align-items:center;gap:4px;background:#f3f1ee;border-radius:20px;padding:4px 6px 4px 10px;font-size:14px;cursor:pointer;max-width:100%}
+.rchip .x{border:0;background:none;color:var(--mute);cursor:pointer;font-size:13px;padding:0 4px}

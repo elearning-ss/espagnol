@@ -1,6 +1,6 @@
 // Espace élève : Leçons · Exercices · Mon compte
-import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents, hwStatus, fmtDue } from "./core.js";
-import { previewFile, fileKind, kindIcon, fmtSize, mountAudio, fileBlob } from "./files.js";
+import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents, hwStatus, fmtDue, isoDay } from "./core.js";
+import { previewFile, fileKind, kindIcon, fmtSize, mountAudio, fileBlob, uploadFile, deleteFile, shrinkPhoto, MAX_FILE } from "./files.js";
 import { passwordBox, installCard, confirmDlg } from "./ui.js";
 import { authError } from "./fb.js";
 import { chatBox, sendMsg, stopPoll, unreadFor, rulesHint, loadWritings, W_STATUS, wordCount, correctionHtml, bindMarks } from "./social.js";
@@ -25,7 +25,7 @@ export function startStudent(ctx) {
   $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button>`;
   $("#spd").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; };
   if (C.preview) $("#exitprev").onclick = () => C.onExit();
-  C.thread = null; C.writings = [];
+  C.thread = null; C.writings = []; C.returns = [];
   go("lessons");
   refreshSocial();
 }
@@ -34,7 +34,9 @@ async function refreshSocial() {
   if (C.preview) { try { C.thread = await C.api.get("threads/" + C.user.uid); C.writings = await loadWritings(C.api, C.user.uid); } catch (e) {} return badges(); }
   try { C.thread = await C.api.get("threads/" + C.user.uid); } catch (e) { C.thread = null; }
   try { C.writings = await loadWritings(C.api, C.user.uid); } catch (e) { C.writings = []; }
+  try { C.returns = await C.api.list(`returns/${C.user.uid}/items`); C.returns.forEach(r => r.base = `returns/${C.user.uid}/items`); } catch (e) { C.returns = []; }
   badges();
+  if ((C.plan.homework || []).length && $(".hw")) lessons(); // affiche les copies déjà rendues
 }
 const wNew = () => C.writings.filter(w => w.status === "todo" || (w.status === "done" && !w.seenS)).length;
 const chapters = () => buildPath(C.plan, { lessons: C.lessons, files: C.files, folders: C.folders }, C.progress).map(c => ({ ...c, items: c.items.filter(i => i.visible) })).filter(c => c.items.length);
@@ -158,23 +160,55 @@ async function writingRead(w) {
 let showDoneHw = false;
 function hwBlock() {
   const all = homework(); if (!all.length) return "";
-  const todo = all.filter(x => !x.st.done), done = all.filter(x => x.st.done);
+  // un devoir fait reste affiché jusqu'à sa date limite (l'élève voit ses coches et sa copie rendue)
+  const keep = x => !x.st.done || (x.h.due && x.h.due >= isoDay());
+  const todo = all.filter(keep), done = all.filter(x => !keep(x)), left = all.filter(x => !x.st.done).length;
   const one = ({ h, st }) => `<div class="card hw ${st.done ? "ok" : st.late ? "late" : ""}">
     <div class="hw-h"><b>${esc(h.title || "Devoir")}</b><span class="when">${st.done ? "✓ terminé" : esc(st.when)}</span></div>
     ${h.note ? `<div class="mute" style="white-space:pre-wrap;margin:2px 0 6px">${esc(h.note)}</div>` : ""}
     <div class="minibar"><i style="width:${st.n ? st.nd / st.n * 100 : 0}%"></i></div>
-    ${st.items.map(it => `<button class="hw-it ${it.done ? "done" : ""}" data-hw="${h.id}" data-i="${it.i}" ${it.ok ? "" : "disabled"}><span class="ck">${it.done ? "✓" : ""}</span><span class="lb">${esc(it.label)}</span>${it.k === "t" ? "" : "<span>›</span>"}</button>`).join("")}</div>`;
-  return `<div class="sch"><div class="sch-h" style="cursor:default"><span>📌</span><b>Mes devoirs</b>${todo.length ? `<span class="mute">${todo.length} à faire</span>` : ""}</div>
+    ${st.items.map(it => `<button class="hw-it ${it.done ? "done" : ""}" data-hw="${h.id}" data-i="${it.i}" ${it.ok ? "" : "disabled"}><span class="ck">${it.done ? "✓" : ""}</span><span class="lb">${esc(it.label)}</span>${it.k === "t" ? "" : "<span>›</span>"}</button>`).join("")}
+    ${(() => { const R = (C.returns || []).filter(r => r.hw === h.id); return `<div class="hw-ret">${R.map(r => `<span class="rchip" data-rv="${r.id}">${kindIcon(fileKind(r.name, r.type))} ${esc(r.name)}${r.seenT ? ` <small title="Vue par votre professeure">👁️</small>` : ""}<button class="x" data-rdel="${r.id}" aria-label="Retirer">✕</button></span>`).join("")}
+      <button class="btn ghost small" data-ret="${h.id}">📤 ${R.length ? "Ajouter un fichier" : "Rendre ma copie"}</button></div>`; })()}</div>`;
+  return `<div class="sch"><div class="sch-h" style="cursor:default"><span>📌</span><b>Mes devoirs</b>${left ? `<span class="mute">${left} à faire</span>` : todo.length ? `<span class="mute">tout est fait ✓</span>` : ""}</div>
     ${todo.map(one).join("") || `<div class="card center mute">Tous vos devoirs sont faits. ¡Genial! 🎉</div>`}
     ${done.length ? `<button class="btn ghost small" id="hwdone">${showDoneHw ? "Masquer" : "Voir"} les devoirs terminés (${done.length})</button>${showDoneHw ? done.slice(0, 8).map(one).join("") : ""}` : ""}</div>`;
 }
+// copie rendue par l'élève : photo (réduite automatiquement) ou fichier
+function pickReturn(hwId) {
+  if (C.preview) return ui.toast("Aperçu : rien n'est envoyé.");
+  const inp = document.createElement("input"); inp.type = "file"; inp.multiple = true;
+  inp.accept = "image/*,.pdf,.doc,.docx,.odt,.txt,.rtf,.pages,audio/*";
+  inp.onchange = async () => {
+    const base = `returns/${C.user.uid}/items`;
+    for (let f of [...inp.files]) {
+      f = await shrinkPhoto(f);
+      if (f.size > MAX_FILE) { ui.toast(`« ${f.name} » est trop lourd (${fmtSize(f.size)}, ${fmtSize(MAX_FILE)} max).`, 5000); continue; }
+      try {
+        ui.toast(`Envoi de « ${f.name} »…`, 60000);
+        const r = await uploadFile(C.api, f, { base, extra: { hw: hwId } }, p => ui.toast(`Envoi : ${Math.round(p * 100)} %`, 60000));
+        C.returns.push(r); (C.progress.ret = C.progress.ret || {})[hwId] = Date.now();
+      } catch (e) { ui.toast(rulesHint(e), 6000); return; }
+    }
+    await saveProgress(); ui.toast("Copie rendue ✓ Votre professeure la verra dans vos devoirs.", 3500); lessons(); badges();
+  };
+  inp.click();
+}
 function bindHw() {
+  $$("[data-ret]", ui.m).forEach(b => b.onclick = () => pickReturn(b.dataset.ret));
+  $$("[data-rv]", ui.m).forEach(b => b.onclick = () => { const r = C.returns.find(x => x.id === b.dataset.rv); if (r) previewFile(C.api, r); });
+  $$("[data-rdel]", ui.m).forEach(b => b.onclick = async e => {
+    e.stopPropagation(); if (C.preview) return;
+    const r = C.returns.find(x => x.id === b.dataset.rdel); if (!r || !await confirmDlg(`Retirer « ${esc(r.name)} » ?`, { ok: "Retirer", danger: true })) return;
+    try { await deleteFile(C.api, r); C.returns = C.returns.filter(x => x.id !== r.id); if (!C.returns.some(x => x.hw === r.hw)) { delete C.progress.ret?.[r.hw]; await saveProgress(); } lessons(); } catch (er) { ui.toast(rulesHint(er)); }
+  });
   const t = $("#hwdone"); if (t) t.onclick = () => { showDoneHw = !showDoneHw; lessons(); };
   $$("[data-hw]", ui.m).forEach(b => b.onclick = async () => {
     const h = C.plan.homework.find(x => x.id === b.dataset.hw), it = h?.items[+b.dataset.i]; if (!it) return;
     if (it.k === "l") return path().find(x => x.l.id === it.id)?.unlocked ? lesson(it.id) : ui.toast("Votre professeur doit encore ouvrir cette leçon.");
     if (it.k === "f") { openFile(it.id); return setTimeout(lessons, 300); }
     if (it.k === "r") { go("exercises"); return review("all"); }
+    if (it.k === "u") return pickReturn(h.id);
     if (C.preview) return ui.toast("Aperçu : rien n'est enregistré.");
     C.progress.hw = C.progress.hw || {}; const m = C.progress.hw[h.id] = C.progress.hw[h.id] || {};
     m[+b.dataset.i] ? delete m[+b.dataset.i] : m[+b.dataset.i] = Date.now();

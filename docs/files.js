@@ -28,28 +28,31 @@ const toB64 = blob => new Promise((ok, ko) => { const r = new FileReader(); r.on
 // Envoie un fichier. meta = { name, folder, students }. onProgress(0..1)
 export async function uploadFile(api, file, meta, onProgress = () => {}) {
   if (file.size > MAX_FILE) throw new Error(`« ${file.name} » dépasse ${fmtSize(MAX_FILE)}. Compressez-le ou mettez-le sur Google Drive (lien dans une leçon).`);
-  const id = api.newId("files");
+  const base = meta.base || "files", id = api.newId(base);
   const n = Math.max(1, Math.ceil(file.size / CHUNK));
   for (let i = 0; i < n; i++) {
-    await api.set(`files/${id}/chunks/${i}`, { d: await toB64(file.slice(i * CHUNK, (i + 1) * CHUNK)) }, false);
+    await api.set(`${base}/${id}/chunks/${i}`, { d: await toB64(file.slice(i * CHUNK, (i + 1) * CHUNK)) }, false);
     onProgress((i + 1) / n);
   }
-  const doc = { name: meta.name || file.name, folder: meta.folder || null, type: file.type || "", size: file.size, chunks: n, students: meta.students || [], createdAt: Date.now(), updatedAt: Date.now() };
-  await api.set("files/" + id, doc, false);
-  return { id, ...doc };
+  const doc = base === "files" ? { name: meta.name || file.name, folder: meta.folder || null, type: file.type || "", size: file.size, chunks: n, students: meta.students || [], createdAt: Date.now(), updatedAt: Date.now() }
+    : { name: meta.name || file.name, type: file.type || "", size: file.size, chunks: n, createdAt: Date.now(), ...(meta.extra || {}) };
+  await api.set(`${base}/${id}`, doc, false);
+  return base === "files" ? { id, ...doc } : { id, base, ...doc };
 }
 export async function deleteFile(api, f) {
-  for (let i = 0; i < (f.chunks || 0); i++) await api.del(`files/${f.id}/chunks/${i}`);
-  await api.del("files/" + f.id);
+  const b = f.base || "files";
+  for (let i = 0; i < (f.chunks || 0); i++) await api.del(`${b}/${f.id}/chunks/${i}`);
+  await api.del(`${b}/${f.id}`);
 }
 const cache = new Map();
 export async function fileBlob(api, f) {
-  if (cache.has(f.id)) return cache.get(f.id);
-  const parts = await Promise.all(Array.from({ length: f.chunks || 0 }, (_, i) => api.get(`files/${f.id}/chunks/${i}`)));
+  const b = f.base || "files", key = b + "/" + f.id;
+  if (cache.has(key)) return cache.get(key);
+  const parts = await Promise.all(Array.from({ length: f.chunks || 0 }, (_, i) => api.get(`${b}/${f.id}/chunks/${i}`)));
   const bins = parts.map(p => Uint8Array.from(atob(p?.d || ""), c => c.charCodeAt(0)));
   const blob = new Blob(bins, { type: f.type || "application/octet-stream" });
   if (cache.size > 12) cache.delete(cache.keys().next().value);
-  cache.set(f.id, blob);
+  cache.set(key, blob);
   return blob;
 }
 export async function downloadFile(api, f) {
@@ -279,3 +282,12 @@ export function mountAudio(root, api, getFile) {
   });
 }
 export const isAudioFile = f => /^audio\//.test(f.type || "") || /\.(mp3|m4a|wav|ogg|aac|oga|opus|webm)$/i.test(f.name || "");
+
+// Photo prise au téléphone : réduite (≈ 300 Ko à 1 Mo) avant l'envoi. Les autres fichiers sont envoyés tels quels.
+export async function shrinkPhoto(file, max = 1800) {
+  if (!/^image\/(jpeg|png|webp|heic|heif)/i.test(file.type) || file.size < 600 * 1024) return file;
+  try {
+    const url = await compressImage(file, max), b = await (await fetch(url)).blob();
+    return b.size < file.size ? new File([b], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }) : file;
+  } catch (e) { return file; }
+}
