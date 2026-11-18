@@ -304,3 +304,25 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important;user-select:none}
 .veil .veil-a{display:none}.veil.open .veil-a{display:block}.veil.open .veil-t{display:none}
 .veil-t{display:inline-block;font-size:13px;color:var(--mute);background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:2px 10px;margin-top:3px}
 .pwrow{display:flex;gap:6px;align-items:center}.pwrow input{flex:1}
+
+/* =================== Relief 1 · Doux (ombres à la place des bordures) =================== */
+:root{--sh1:0 1px 2px rgba(43,38,34,.06),0 4px 14px rgba(43,38,34,.05);--sh2:0 2px 4px rgba(43,38,34,.06),0 12px 28px rgba(43,38,34,.10);--shb:0 1px 2px rgba(43,38,34,.08),0 2px 8px rgba(43,38,34,.05)}
+@media (prefers-color-scheme:dark){:root{--sh1:0 1px 2px rgba(0,0,0,.35),0 4px 14px rgba(0,0,0,.25);--sh2:0 2px 4px rgba(0,0,0,.4),0 12px 28px rgba(0,0,0,.35);--shb:0 1px 3px rgba(0,0,0,.4)}}
+.card,.scard,.kpi div,.list .item,.chap,.src,.explorer,.sticky-save,.exbox,.prof{border-color:transparent;box-shadow:var(--sh1)}
+.card.hero{box-shadow:0 2px 6px rgba(184,50,42,.18),0 10px 26px rgba(184,50,42,.16)}
+.card.step,.scard,.list .item{transition:box-shadow .18s,transform .18s}
+.card.step:not(.locked):hover,.scard:hover,.list .item:hover{box-shadow:var(--sh2);transform:translateY(-2px)}
+.step.next{border-color:var(--g)}.scard.sel{border-color:var(--g)}
+.btn.ghost{background:var(--card);border-color:transparent;box-shadow:var(--shb)}
+.btn.ghost:hover{box-shadow:var(--sh2)}
+.btn:not(.ghost){box-shadow:0 2px 6px rgba(184,50,42,.22)}
+.btn.okb{box-shadow:0 2px 6px rgba(47,125,91,.22)}
+.pill,.tabs button{border-color:transparent;box-shadow:var(--shb)}
+.tabs button.on{box-shadow:0 2px 6px rgba(43,38,34,.18)}
+.chap-h{border-bottom-color:transparent;background:var(--bg)}
+.dropzone,.drop-hint{box-shadow:none}
+@media (min-width:900px){
+  nav.side{border-right:0;box-shadow:1px 0 0 var(--line),6px 0 20px rgba(43,38,34,.05)}
+  nav.side button.on{box-shadow:0 1px 2px rgba(184,50,42,.12)}
+}
+@media (max-width:899px){nav.side,nav.bottom{border-top:0;box-shadow:0 -1px 0 var(--line),0 -6px 18px rgba(43,38,34,.05)}}
