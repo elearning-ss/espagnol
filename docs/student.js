@@ -1,6 +1,6 @@
 // Espace élève : Leçons · Exercices · Mon compte
 import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName } from "./core.js";
-import { previewFile, fileKind, kindIcon, fmtSize } from "./files.js";
+import { previewFile, fileKind, kindIcon, fmtSize, mountAudio } from "./files.js";
 import { passwordBox } from "./ui.js";
 import { authError } from "./fb.js";
 
@@ -120,6 +120,7 @@ function lesson(id, tab = "c") {
       <button class="btn full" id="doex">Faire les exercices →</button>`;
   }
   ui.m.innerHTML = h;
+  mountAudio(ui.m, C.api, fid => C.files.find(f => f.id === fid));
   $$("[data-t]", ui.m).forEach(b => b.onclick = () => lesson(id, b.dataset.t));
   const vd = $("#vdir"); if (vd) { vd.onclick = () => { VP.set("fr", !VP.get("fr")); lesson(id, "v"); }; $("#vhide").onclick = () => { VP.set("hide", !VP.get("hide")); lesson(id, "v"); }; }
   $$(".veil", ui.m).forEach(v => v.closest(".voc").addEventListener("click", () => { if (!v.classList.contains("open")) { v.classList.add("open"); const r = v.closest(".voc"); if (!r.dataset.say) speak(r.dataset.es); } }));

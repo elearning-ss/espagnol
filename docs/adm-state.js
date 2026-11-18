@@ -52,6 +52,7 @@ export async function syncAccess() {
     const p = S.plans[s.id]; if (!p || s.disabled) continue;
     for (const ch of p.chapters) for (const it of ch.items) {
       if (it.k === "f") add("f:" + it.id, s.id);
+      if (it.k === "l") { const l = lessonById(it.id); if (l && l.course) for (const m of String(l.course).matchAll(/data-file="([^"]+)"/g)) add("f:" + m[1], s.id); } // audios des leçons
       if (it.k === "d" && folderById(it.id)) {
         const all = [folderById(it.id), ...descendants(it.id)];
         all.forEach(d => { add("d:" + d.id, s.id); folderFiles(d.id).forEach(f => add("f:" + f.id, s.id)); });

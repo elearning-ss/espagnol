@@ -1,9 +1,9 @@
 // Leçons interactives : liste, éditeur complet, import Word/PDF, exercices.
 import { $, $$, esc, ui, linkify, cleanLesson, runQuiz, autoVocabEx, fmtDate, typeName, ikey } from "./core.js";
 import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast, draggable, dropZone, fileDrop } from "./ui.js";
-import { S, api, fail, clone, saveOrder, lessonById, savePlan, addItemsToPlan, removeItemsFromPlan, planHas, sName, initials } from "./adm-state.js";
+import { S, api, fail, clone, saveOrder, lessonById, savePlan, addItemsToPlan, removeItemsFromPlan, planHas, sName, initials, syncAccess, fileById } from "./adm-state.js";
 import { SEED } from "./seed.js";
-import { fileToHtml, compressImage, cleanHtml, parseVocabText, vocabFileToText } from "./files.js";
+import { fileToHtml, compressImage, cleanHtml, parseVocabText, vocabFileToText, uploadFile, mountAudio, isAudioFile, fmtSize, MAX_FILE } from "./files.js";
 
 const sizeOf = o => new Blob([JSON.stringify(o)]).size;
 const sw = (attrs, checked, label) => `<label class="swl"><span class="sw"><input type="checkbox" ${attrs} ${checked ? "checked" : ""}><span></span></span>${label || ""}</label>`;
@@ -155,6 +155,7 @@ export function editLesson(id, tab = "info") {
       const i = S.lessons.findIndex(l => l.id === id);
       if (i < 0) { S.lessons.push({ id, ...doc }); await saveOrder(); } else S.lessons[i] = { id, ...doc };
       isNew = false; dirty = false; b.textContent = "✓ Enregistré"; toast("Leçon enregistrée ✓");
+      syncAccess().catch(fail);
     } catch (e) { fail(e); b.disabled = false; b.textContent = "💾 Enregistrer"; }
   }
   function preview() {
@@ -166,6 +167,7 @@ export function editLesson(id, tab = "info") {
       <div class="row"><button class="btn ghost" id="pb">← Retour à l'édition</button><button class="btn" id="pt">Tester les exercices</button></div>`;
     $("#pb").onclick = render;
     $("#pt").onclick = () => testLesson(cleanLesson(W), render);
+    mountAudio(ui.m, api(), fileById);
   }
 
   function info(p) {
@@ -188,14 +190,14 @@ export function editLesson(id, tab = "info") {
       <select data-c="block"><option value="">Style…</option><option value="h3">Titre</option><option value="p">Paragraphe</option></select>
       <button data-c="bold" title="Gras (Ctrl+B)"><b>G</b></button><button data-c="italic" title="Italique (Ctrl+I)"><i>I</i></button><button data-c="underline" title="Souligné"><u>S</u></button>
       <button data-c="insertUnorderedList">• Liste</button><button data-c="insertOrderedList">1. Liste</button>
-      <button data-c="say" title="Rendre le texte sélectionné cliquable et prononcé">🔊 Audio</button>
+      <button data-c="say" title="Rendre le texte sélectionné cliquable et prononcé">🔊 Audio</button><button data-c="audiofile" title="Insérer un fichier audio (MP3…) avec un lecteur lecture / pause / réécouter">🎧 Fichier audio</button>
       <button data-c="note" title="Encadré jaune">📝 Encadré</button><button data-c="model" title="Encadré modèle">💬 Modèle</button>
       <button data-c="table">▦ Tableau</button><button data-c="img">🖼️ Image</button><button data-c="link">🔗 Lien</button>
       <button data-c="removeFormat" title="Effacer la mise en forme">⌫ Format</button>
       <button data-c="import" title="Importer un Word ou PDF dans ce cours">📥 Word/PDF</button>
       <button data-c="html">${htmlMode ? "👁️ Visuel" : "&lt;/&gt; HTML"}</button></div>
       ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true" spellcheck="false">${toEditor(W.course)}</div>`}
-      <input type="file" id="cf" accept=".docx,.pdf,.txt,.html,.htm" hidden><input type="file" id="imf" accept="image/*" hidden>
+      <input type="file" id="cf" accept=".docx,.pdf,.txt,.html,.htm" hidden><input type="file" id="auf" accept="audio/*,.mp3,.m4a,.wav,.ogg" hidden><input type="file" id="imf" accept="image/*" hidden>
       <p class="mute">Pour rendre une phrase espagnole <b>écoutable</b> (en <span class="say">rouge</span>) : tapez-la entre deux étoiles, <code>**Me llamo Julien.**</code>, elle devient rouge dès la seconde paire d'étoiles. Vous pouvez aussi la sélectionner puis cliquer sur <b>🔊 Audio</b>. Pour retirer l'audio : cliquez dans la phrase rouge puis sur 🔊 Audio. Les <code>**…**</code> écrits dans un Word importé sont reconnus aussi. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
     const rte = $("#rte"), code = $("#code");
     if (rte) {
@@ -216,7 +218,9 @@ export function editLesson(id, tab = "info") {
       rte.addEventListener("keyup", conv); rte.addEventListener("blur", conv);
       rte.addEventListener("paste", () => setTimeout(() => { conv(); mark(); }));
       conv();
-      fileDrop(rte, f => importInto(f[0]));
+      fileDrop(rte, f => { const au = f.filter(isAudioFile); if (au.length) au.forEach(x => addAudio(x)); else importInto(f[0]); });
+      decorateAudio(rte);
+      rte.addEventListener("click", e => { const x = e.target.closest("[data-apx]"); if (x) { x.closest(".aplayer").remove(); mark(); } });
     }
     if (code) code.oninput = mark;
     const exec = (c, v = null) => { rte.focus(); document.execCommand(c, false, v); mark(); };
@@ -250,12 +254,34 @@ export function editLesson(id, tab = "info") {
         if (!r) return; restoreSel();
         return insertHtml(`<table>${Array.from({ length: r[0] }, () => `<tr>${Array.from({ length: r[1] }, () => "<td>&nbsp;</td>").join("")}</tr>`).join("")}</table><p><br></p>`);
       }
+      if (c === "audiofile") { keepSel(); return chooseAudio(); }
       if (c === "img") { keepSel(); return $("#imf").click(); }
       if (c === "link") { keepSel(); const u = await promptDlg("Adresse du lien", "https://", { ok: "Insérer" }); if (u) { restoreSel(); exec("createLink", u); } return; }
       if (b.tagName === "BUTTON") exec(c);
     };
     $("#imf").onchange = async e => { const f = e.target.files[0]; e.target.value = ""; if (!f) return; try { const src = await compressImage(f); restoreSel(); insertHtml(`<img src="${src}" alt="">`); } catch (err) { toast("Image illisible."); } };
     $("#cf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) importInto(f); };
+    $("#auf").onchange = e => { const fs = [...e.target.files]; e.target.value = ""; fs.forEach(f => addAudio(f)); };
+    const insertPlayer = f => { restoreSel(); insertHtml(`<div class="aplayer" data-file="${f.id}" data-name="${esc(f.name)}">${esc(f.name)}</div><p><br></p>`); decorateAudio(rte); };
+    // Choisir un audio déjà dans la bibliothèque, ou en importer un nouveau
+    function chooseAudio() {
+      const list = S.files.filter(isAudioFile).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      const body = document.createElement("div");
+      body.innerHTML = `<button class="btn full" data-up>⬆️ Importer un fichier audio depuis l'ordinateur</button><p class="mute" style="margin:6px 0 12px">MP3, M4A, WAV… jusqu'à ${fmtSize(MAX_FILE)}. Il sera rangé dans la bibliothèque, dossier « Audios des leçons ».</p>
+        ${list.length ? `<p><b>Ou choisissez un audio de la bibliothèque :</b></p><div class="scrolly" style="max-height:45vh;overflow:auto">${list.map(f => `<button class="pk" style="width:100%;border:0;background:none;text-align:left;font:inherit" data-pick="${f.id}"><span style="font-size:20px">🎧</span><span><b>${esc(f.name)}</b><br><small class="mute">${fmtSize(f.size)}</small></span></button>`).join("")}</div>` : ""}`;
+      const m = modal({ title: "🎧 Insérer un fichier audio", body, buttons: [{ label: "Annuler", value: null }] });
+      body.querySelector("[data-up]").onclick = () => { m.close(); $("#auf").click(); };
+      body.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { m.close(); insertPlayer(fileById(b.dataset.pick)); toast("Lecteur audio ajouté au cours"); });
+    }
+    async function addAudio(file) {
+      try {
+        let folder = S.folders.find(d => !d.parent && d.name === "Audios des leçons");
+        if (!folder) { const fid = api().newId("folders"); folder = { id: fid, name: "Audios des leçons", parent: null, students: [], createdAt: Date.now(), updatedAt: Date.now() }; const { id: _, ...doc } = folder; await api().set("folders/" + fid, doc, false); S.folders.push(folder); }
+        toast(`Envoi de « ${file.name} »…`, 60000);
+        const doc = await uploadFile(api(), file, { folder: folder.id, students: [] }, p => toast(`Envoi de « ${file.name} » : ${Math.round(p * 100)} %`, 60000));
+        S.files.push(doc); insertPlayer(doc); toast("Audio ajouté au cours ✓ Pensez à enregistrer.", 3000);
+      } catch (e) { fail(e); }
+    }
     async function importInto(f) {
       try {
         toast("Import en cours…", 1500);
@@ -348,6 +374,14 @@ export function editLesson(id, tab = "info") {
 }
 // Dans l'éditeur, les phrases audio [[…]] s'affichent comme l'élève les voit (en rouge), sans crochets.
 const toEditor = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (m, t) => `<span class="say">${t}</span>`).replace(/\*\*([^*<>]+?)\*\*/g, (m, t) => `<span class="say">${t}</span>`);
+// Dans l'éditeur, un lecteur audio est un bloc non modifiable avec un bouton « Retirer »
+function decorateAudio(rte) {
+  rte.querySelectorAll(".aplayer").forEach(x => {
+    if (x.dataset.deco) return; x.dataset.deco = "1"; x.setAttribute("contenteditable", "false");
+    const f = fileById(x.dataset.file);
+    x.innerHTML = `<span style="font-size:20px">🎧</span><span><b>${esc(x.dataset.name || "Audio")}</b><br><small class="mute">${f ? "Lecteur audio : lecture, pause, réécouter, vitesse" : "⚠️ Fichier introuvable dans la bibliothèque"}</small></span><button type="button" class="ap-x" data-apx>✕ Retirer</button>`;
+  });
+}
 // Chrome recopie parfois la couleur/le gras d'une phrase rouge effacée sur le texte retapé : on l'enlève
 function scrubCarry(rte) {
   const bad = [...rte.querySelectorAll("font,[style],span:not([class])")];
@@ -375,6 +409,7 @@ function autoSay(rte) {
 }
 function fromEditor(h) {
   const d = document.createElement("div"); d.innerHTML = h;
+  d.querySelectorAll(".aplayer").forEach(x => { x.textContent = x.dataset.name || "Audio"; x.removeAttribute("contenteditable"); });
   d.querySelectorAll("span.say").forEach(x => { if (!x.textContent.replace(/\u200B/g, "").trim()) x.replaceWith(...x.childNodes); else x.outerHTML = "[[" + x.innerHTML + "]]"; });
   return d.innerHTML.replace(/\u200B/g, "").replace(/\*\*([^*<>]+?)\*\*/g, "[[$1]]");
 }

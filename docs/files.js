@@ -184,8 +184,8 @@ export function cleanHtml(h) {
   const d = document.createElement("div"); d.innerHTML = h;
   d.querySelectorAll("script,style,meta,link,iframe,object,embed,o\\:p").forEach(e => e.remove());
   d.querySelectorAll("h1,h2").forEach(e => { const n = document.createElement("h3"); n.innerHTML = e.innerHTML; e.replaceWith(n); });
-  const keepAttr = { A: ["href", "target"], IMG: ["src", "alt"], TD: ["colspan", "rowspan"], TH: ["colspan", "rowspan"], BUTTON: ["data-say"], SPAN: ["data-say"] };
-  const keepClass = ["say", "note", "model", "fr", "letters", "map", "road", "sq", "you", "scroll", "small"];
+  const keepAttr = { A: ["href", "target"], IMG: ["src", "alt"], TD: ["colspan", "rowspan"], TH: ["colspan", "rowspan"], BUTTON: ["data-say"], SPAN: ["data-say"], DIV: ["data-file", "data-name"] };
+  const keepClass = ["say", "note", "model", "fr", "letters", "map", "road", "sq", "you", "scroll", "small", "aplayer"];
   d.querySelectorAll("*").forEach(e => {
     for (const a of [...e.attributes]) {
       if (a.name === "class") { const k = a.value.split(/\s+/).filter(c => keepClass.includes(c)); k.length ? e.setAttribute("class", k.join(" ")) : e.removeAttribute("class"); continue; }
@@ -237,3 +237,45 @@ export async function vocabFileToText(f) {
   if (ext === "txt" || ext === "md") return f.text();
   throw new Error("Format non pris en charge : utilisez un fichier Excel (.xlsx), CSV, Word (.docx) ou texte.");
 }
+
+/* ---------- lecteur audio intégré aux leçons ----------
+   Dans le cours : <div class="aplayer" data-file="ID" data-name="dialogue.mp3">dialogue.mp3</div>
+   mountAudio() le transforme en lecteur : lecture/pause, barre, −5 s, réécouter, vitesse. */
+const IC = {
+  play: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>',
+  pause: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></svg>',
+  re: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4.5h4.5"/></svg>',
+  wait: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur=".8s" repeatCount="indefinite"/></path></svg>',
+};
+let currentAudio = null;
+const fmtT = s => isFinite(s) && s >= 0 ? Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0") : "0:00";
+export function mountAudio(root, api, getFile) {
+  root.querySelectorAll(".aplayer").forEach(el => {
+    if (el.dataset.mounted) return; el.dataset.mounted = "1";
+    const id = el.dataset.file, name = el.dataset.name || "Audio";
+    el.innerHTML = `<button type="button" class="ap-play" aria-label="Lecture">${IC.play}</button>
+      <div class="ap-mid"><div class="ap-name">🎧 ${esc(name)}</div><input type="range" class="ap-bar" min="0" max="1000" value="0" aria-label="Position dans l'audio"><div class="ap-time">0:00</div></div>
+      <div class="ap-tools"><button type="button" class="ap-btn" data-a="back" title="Reculer de 5 secondes">−5 s</button><button type="button" class="ap-btn" data-a="re" title="Réécouter depuis le début" aria-label="Réécouter">${IC.re}</button><button type="button" class="ap-btn" data-a="sp" title="Vitesse de lecture">1×</button></div>`;
+    const play = el.querySelector(".ap-play"), bar = el.querySelector(".ap-bar"), time = el.querySelector(".ap-time"), sp = el.querySelector('[data-a="sp"]');
+    let audio = null, rate = 1;
+    const ensure = async () => {
+      if (audio) return audio;
+      const f = getFile(id); if (!f) throw new Error("introuvable");
+      play.innerHTML = IC.wait;
+      const blob = await fileBlob(api, f);
+      audio = new Audio(URL.createObjectURL(blob)); audio.playbackRate = rate;
+      const tick = () => { bar.value = audio.duration ? audio.currentTime / audio.duration * 1000 : 0; time.textContent = fmtT(audio.currentTime) + " / " + fmtT(audio.duration); };
+      audio.ontimeupdate = audio.onloadedmetadata = tick;
+      audio.onplay = () => { if (currentAudio && currentAudio !== audio) currentAudio.pause(); currentAudio = audio; play.innerHTML = IC.pause; play.setAttribute("aria-label", "Pause"); el.classList.add("on"); };
+      audio.onpause = audio.onended = () => { play.innerHTML = IC.play; play.setAttribute("aria-label", "Lecture"); el.classList.remove("on"); };
+      return audio;
+    };
+    const fail = () => { play.innerHTML = IC.play; time.textContent = "Audio indisponible"; el.classList.add("err"); };
+    play.onclick = async () => { try { if ("speechSynthesis" in window) speechSynthesis.cancel(); const a = await ensure(); a.paused ? a.play() : a.pause(); } catch (e) { fail(); } };
+    el.querySelector('[data-a="re"]').onclick = async () => { try { const a = await ensure(); a.currentTime = 0; a.play(); } catch (e) { fail(); } };
+    el.querySelector('[data-a="back"]').onclick = async () => { try { const a = await ensure(); a.currentTime = Math.max(0, a.currentTime - 5); } catch (e) { fail(); } };
+    sp.onclick = () => { rate = rate === 1 ? .75 : rate === .75 ? .5 : 1; sp.textContent = String(rate).replace(".", ",") + "×"; if (audio) audio.playbackRate = rate; };
+    bar.oninput = async () => { try { const a = await ensure(); if (a.duration) a.currentTime = bar.value / 1000 * a.duration; } catch (e) { fail(); } };
+  });
+}
+export const isAudioFile = f => /^audio\//.test(f.type || "") || /\.(mp3|m4a|wav|ogg|aac|oga|opus|webm)$/i.test(f.name || "");
