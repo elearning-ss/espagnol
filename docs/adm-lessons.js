@@ -196,9 +196,9 @@ export function editLesson(id, tab = "info") {
       <button data-c="html">${htmlMode ? "👁️ Visuel" : "&lt;/&gt; HTML"}</button></div>
       ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true" spellcheck="false">${toEditor(W.course)}</div>`}
       <input type="file" id="cf" accept=".docx,.pdf,.txt,.html,.htm" hidden><input type="file" id="imf" accept="image/*" hidden>
-      <p class="mute">Astuce : sélectionnez une phrase espagnole puis <b>🔊 Audio</b> : elle passe en <span class="say">rouge</span> et l'élève pourra l'écouter en la touchant. Pour retirer l'audio, sélectionnez-la à nouveau et recliquez sur 🔊 Audio. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
+      <p class="mute">Pour rendre une phrase espagnole <b>écoutable</b> (en <span class="say">rouge</span>) : tapez-la entre deux étoiles, <code>**Me llamo Julien.**</code>, elle devient rouge dès la seconde paire d'étoiles. Vous pouvez aussi la sélectionner puis cliquer sur <b>🔊 Audio</b>. Pour retirer l'audio : cliquez dans la phrase rouge puis sur 🔊 Audio. Les <code>**…**</code> écrits dans un Word importé sont reconnus aussi. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
     const rte = $("#rte"), code = $("#code");
-    if (rte) { rte.oninput = mark; fileDrop(rte, f => importInto(f[0])); }
+    if (rte) { rte.oninput = () => { while (autoSay(rte)); mark(); }; fileDrop(rte, f => importInto(f[0])); }
     if (code) code.oninput = mark;
     const exec = (c, v = null) => { rte.focus(); document.execCommand(c, false, v); mark(); };
     const insertHtml = h => { rte.focus(); document.execCommand("insertHTML", false, h); mark(); };
@@ -328,11 +328,23 @@ export function editLesson(id, tab = "info") {
   render();
 }
 // Dans l'éditeur, les phrases audio [[…]] s'affichent comme l'élève les voit (en rouge), sans crochets.
-const toEditor = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (m, t) => `<span class="say">${t}</span>`);
+const toEditor = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (m, t) => `<span class="say">${t}</span>`).replace(/\*\*([^*<>]+?)\*\*/g, (m, t) => `<span class="say">${t}</span>`);
+// Pendant la frappe : **texte** devient aussitôt une phrase audio (rouge)
+function autoSay(rte) {
+  const w = document.createTreeWalker(rte, NodeFilter.SHOW_TEXT); let n, hit = null;
+  while ((n = w.nextNode())) { if (n.parentElement.closest("span.say")) continue; const m = /\*\*([^*]+?)\*\*/.exec(n.textContent); if (m) { hit = { n, m }; break; } }
+  if (!hit) return false;
+  const { n: node, m } = hit, after = node.splitText(m.index); after.textContent = after.textContent.slice(m[0].length);
+  const sp = document.createElement("span"); sp.className = "say"; sp.textContent = m[1];
+  const gap = document.createTextNode("\u200B");
+  node.parentNode.insertBefore(sp, after); node.parentNode.insertBefore(gap, after);
+  const r = document.createRange(); r.setStart(gap, 1); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  return true;
+}
 function fromEditor(h) {
   const d = document.createElement("div"); d.innerHTML = h;
-  d.querySelectorAll("span.say").forEach(x => { if (!x.textContent.trim()) x.replaceWith(...x.childNodes); else x.outerHTML = "[[" + x.innerHTML + "]]"; });
-  return d.innerHTML;
+  d.querySelectorAll("span.say").forEach(x => { if (!x.textContent.replace(/\u200B/g, "").trim()) x.replaceWith(...x.childNodes); else x.outerHTML = "[[" + x.innerHTML + "]]"; });
+  return d.innerHTML.replace(/\u200B/g, "").replace(/\*\*([^*<>]+?)\*\*/g, "[[$1]]");
 }
 export const stateSeg = (attr, st) => `<span class="seg">${[["open", "🔓", "Ouverte"], ["locked", "🔒", "Verrouillée"], ["hidden", "🙈", "Cachée"]].map(([v, i, t]) => `<button class="${st === v ? "on" : ""}" data-st="${attr}|${v}" title="${t}">${i}</button>`).join("")}</span>`;
 
