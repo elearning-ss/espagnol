@@ -63,6 +63,8 @@ export async function syncAccess() {
         all.forEach(d => { add("d:" + d.id, s.id); folderFiles(d.id).forEach(f => add("f:" + f.id, s.id)); });
       }
     }
+    // documents donnés en devoir
+    for (const h of p.homework || []) for (const it of h.items || []) if (it.k === "f") add("f:" + it.id, s.id);
   }
   const same = (a = [], b) => a.length === b.length && a.every(x => b.includes(x));
   const writes = [];

@@ -1,13 +1,13 @@
 // Élèves (liste, invitation, fiche, parcours, suivi) et parcours types.
 import { $, $$, esc, ui, fmtDate, buildPath, pathLessons, ikey, newId, typeName, hwStatus, isoDay, fmtDue } from "./core.js";
-import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast } from "./ui.js";
+import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast, fileDrop } from "./ui.js";
 import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, sName, initials, pickStudents } from "./adm-state.js";
 import { pathBuilder } from "./adm-path.js";
 import { DEMO } from "./fb.js";
 import { startStudent } from "./student.js";
 import { purgeSocial, assignTopic, unreadCount, toCorrect } from "./adm-social.js";
 import { unreadFor } from "./social.js";
-import { fileKind, kindIcon, parseVocabText } from "./files.js";
+import { fileKind, kindIcon, parseVocabText, uploadFile, fmtSize, MAX_FILE } from "./files.js";
 
 /* ---------- statistiques ---------- */
 export function stats(s) {
@@ -171,13 +171,46 @@ export function studentDetail(uid, tab = "path") {
       <label class="f">Mot pour l'élève (facultatif)</label><textarea id="hw_n" rows="2" placeholder="ex. Concentre-toi sur les verbes irréguliers.">${esc(h.note || "")}</textarea>
       <label class="f">Leçons à travailler <small class="mute">(faites quand l'exercice est réussi)</small></label>
       <div class="hwpick">${ls.map(i => `<label><input type="checkbox" data-hl="${i.id}" ${has("l", i.id) ? "checked" : ""}> ${esc(i.obj.emoji)} ${esc(i.obj.title)} ${i.unlocked ? "" : `<small class="mute">(sera ouverte)</small>`}${i.score ? ` <small class="mute">· ${i.score} %</small>` : ""}</label>`).join("") || `<p class="mute">Aucune leçon dans son parcours.</p>`}</div>
-      ${fs.length ? `<label class="f">Documents à lire ou écouter <small class="mute">(faits quand il les ouvre)</small></label><div class="hwpick">${fs.map(f => `<label><input type="checkbox" data-hf="${f.id}" ${has("f", f.id) ? "checked" : ""}> ${kindIcon(fileKind(f.name, f.type))} ${esc(f.name)}</label>`).join("")}</div>` : ""}
+      <label class="f">Documents <small class="mute">(faits quand il les ouvre)</small></label>
+      <div class="hwdrop" id="hw_drop" tabindex="0"><b>📎 Déposer un devoir tout fait</b><span class="mute">Glissez ici un fichier (Word, PDF, image, audio…) ou cliquez pour le choisir · ${fmtSize(MAX_FILE)} max.</span><input type="file" id="hw_file" multiple hidden></div>
+      <div class="hwpick" id="hw_docs"></div>
       <label class="hwr"><input type="checkbox" id="hw_r" ${has("r") ? "checked" : ""}> 🃏 Faire une séance de révision du vocabulaire</label>
       <label class="f">Autres consignes <small class="mute">(une par ligne, l'élève les coche lui-même)</small></label><textarea id="hw_x" rows="3" placeholder="ex. Écrire 5 phrases sur ton week-end&#10;Regarder un épisode en espagnol">${esc(free)}</textarea>`;
-    const r = await modal({ title: isNew ? "📌 Nouveau devoir" : "📌 Modifier le devoir", wide: true, body, buttons: [{ label: "Annuler", value: null }, { label: isNew ? "Donner le devoir" : "Enregistrer", primary: true, act: a => {
+    // documents proposés : ceux auxquels l'élève a accès, ceux déjà dans le devoir, ceux qu'on vient de déposer ; « toute la bibliothèque » sur demande
+    const picked = new Set(h.items.filter(i => i.k === "f").map(i => i.id));
+    let showAll = false;
+    const drawDocs = B => {
+      const box = $("#hw_docs", B); if (!box) return;
+      $$("[data-hf]", box).forEach(e => e.checked ? picked.add(e.dataset.hf) : picked.delete(e.dataset.hf));
+      const shown = S.files.filter(f => showAll || fids.has(f.id) || picked.has(f.id)).sort((a, b) => (picked.has(b.id) - picked.has(a.id)) || a.name.localeCompare(b.name, "fr"));
+      const more = S.files.length - shown.length;
+      box.innerHTML = shown.map(f => `<label><input type="checkbox" data-hf="${f.id}" ${picked.has(f.id) ? "checked" : ""}> ${kindIcon(fileKind(f.name, f.type))} ${esc(f.name)}${fids.has(f.id) ? "" : ` <small class="mute">(lui sera donné)</small>`}</label>`).join("") || `<p class="mute">Aucun document pour l'instant.</p>`;
+      if (more > 0) { box.insertAdjacentHTML("beforeend", `<button type="button" class="btn ghost small" id="hw_all">📂 Choisir dans toute la bibliothèque (${more} autre${more > 1 ? "s" : ""})</button>`); $("#hw_all", box).onclick = () => { showAll = true; drawDocs(B); }; }
+    };
+    const upload = async (files, B) => {
+      let folder = S.folders.find(d => !d.parent && d.name === "Devoirs");
+      try {
+        if (!folder) { const fid = api().newId("folders"); folder = { id: fid, name: "Devoirs", parent: null, students: [], createdAt: Date.now(), updatedAt: Date.now() }; const { id: _, ...doc } = folder; await api().set("folders/" + fid, doc, false); S.folders.push(folder); }
+        for (const file of files) {
+          toast(`Envoi de « ${file.name} »…`, 60000);
+          const doc = await uploadFile(api(), file, { folder: folder.id, students: [] }, pr => toast(`Envoi de « ${file.name} » : ${Math.round(pr * 100)} %`, 60000));
+          S.files.push(doc); drawDocs(B); picked.add(doc.id); drawDocs(B);
+        }
+        toast(files.length > 1 ? `${files.length} documents ajoutés ✓` : "Document ajouté au devoir ✓");
+      } catch (e) { fail(e); }
+    };
+    const r = await modal({ title: isNew ? "📌 Nouveau devoir" : "📌 Modifier le devoir", wide: true, body,
+      onOpen: a => {
+        const B = a.body, z = $("#hw_drop", B), inp = $("#hw_file", B);
+        drawDocs(B);
+        z.onclick = () => inp.click(); z.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inp.click(); } };
+        inp.onchange = () => { const f = [...inp.files]; inp.value = ""; if (f.length) upload(f, B); };
+        fileDrop(z, f => upload(f, B));
+      },
+      buttons: [{ label: "Annuler", value: null }, { label: isNew ? "Donner le devoir" : "Enregistrer", primary: true, act: a => {
       const B = a.body, items = [
         ...$$("[data-hl]:checked", B).map(e => ({ k: "l", id: e.dataset.hl })),
-        ...$$("[data-hf]:checked", B).map(e => ({ k: "f", id: e.dataset.hf })),
+        ...(drawDocs(B), [...picked].filter(id => S.files.some(f => f.id === id)).map(id => ({ k: "f", id }))),
         ...($("#hw_r", B).checked ? [{ k: "r" }] : []),
         ...$("#hw_x", B).value.split("\n").map(x => x.trim()).filter(Boolean).map(txt => ({ k: "t", txt })),
       ];
