@@ -200,7 +200,19 @@ export function editLesson(id, tab = "info") {
     const rte = $("#rte"), code = $("#code");
     if (rte) {
       const conv = () => { let n = 0; while (autoSay(rte) && n++ < 200); };
-      rte.oninput = () => { conv(); mark(); };
+      rte.oninput = () => { scrubCarry(rte); conv(); mark(); };
+      // Espace ou Entrée à la fin d'une phrase rouge : on sort du rouge
+      rte.addEventListener("keydown", e => {
+        if (e.key !== " " && e.key !== "Enter") return;
+        const s = getSelection(); if (!s.rangeCount || !s.isCollapsed) return;
+        const n = s.anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement), sp = el && el.closest("#rte span.say");
+        if (!sp) return;
+        const r = document.createRange(); r.selectNodeContents(sp); r.setStart(s.anchorNode, s.anchorOffset);
+        if (r.toString().replace(/\u200B/g, "").length) return; // pas à la fin
+        let gap = sp.nextSibling;
+        if (!gap || gap.nodeType !== 3) { gap = document.createTextNode("\u200B"); sp.after(gap); }
+        const c = document.createRange(); c.setStart(gap, gap.textContent.length); c.collapse(true); s.removeAllRanges(); s.addRange(c);
+      });
       rte.addEventListener("keyup", conv); rte.addEventListener("blur", conv);
       rte.addEventListener("paste", () => setTimeout(() => { conv(); mark(); }));
       conv();
@@ -336,6 +348,19 @@ export function editLesson(id, tab = "info") {
 }
 // Dans l'éditeur, les phrases audio [[…]] s'affichent comme l'élève les voit (en rouge), sans crochets.
 const toEditor = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (m, t) => `<span class="say">${t}</span>`).replace(/\*\*([^*<>]+?)\*\*/g, (m, t) => `<span class="say">${t}</span>`);
+// Chrome recopie parfois la couleur/le gras d'une phrase rouge effacée sur le texte retapé : on l'enlève
+function scrubCarry(rte) {
+  const bad = [...rte.querySelectorAll("font,[style],span:not([class])")];
+  if (!bad.length) return;
+  // repère du curseur, pour le remettre au même endroit après le nettoyage
+  const sel = getSelection(); let mk = null;
+  if (sel.rangeCount && rte.contains(sel.anchorNode)) { mk = document.createElement("x-cm"); const r = sel.getRangeAt(0).cloneRange(); r.collapse(false); r.insertNode(mk); }
+  rte.querySelectorAll("font").forEach(f => { f.querySelectorAll("b,strong").forEach(x => { if (x.textContent === f.textContent) x.replaceWith(...x.childNodes); }); f.replaceWith(...f.childNodes); });
+  rte.querySelectorAll("[style]").forEach(e => e.removeAttribute("style"));
+  rte.querySelectorAll("span:not([class])").forEach(e => e.replaceWith(...e.childNodes));
+  if (mk && mk.isConnected) { const r = document.createRange(); r.setStartBefore(mk); r.collapse(true); mk.remove(); sel.removeAllRanges(); sel.addRange(r); }
+  rte.normalize();
+}
 // Pendant la frappe : **texte** devient aussitôt une phrase audio (rouge)
 function autoSay(rte) {
   const w = document.createTreeWalker(rte, NodeFilter.SHOW_TEXT); let n, hit = null;
