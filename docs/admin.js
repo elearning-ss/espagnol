@@ -1,6 +1,6 @@
 // Espace professeur : coque (menu latéral), navigation et compte.
 import { $, $$, esc, ui, cleanLesson } from "./core.js";
-import { confirmDlg, toast, modal } from "./ui.js";
+import { confirmDlg, toast, modal, passwordBox } from "./ui.js";
 import { DEMO } from "./fb.js";
 import { S, reload, fail, api, normPlan, sName, initials, pickStudents } from "./adm-state.js";
 import { lessonsView, editLesson } from "./adm-lessons.js";
@@ -41,11 +41,11 @@ function accountView() {
   ui.m.innerHTML = `<div class="card"><b>${esc(C.profile.name || "Professeur")}</b><div class="mute">${esc(C.user.email)}</div></div>
   ${DEMO ? `<div class="demo"><b>🧪 Mode démo.</b> Tout est stocké dans ce navigateur. Pour passer en vrai mode, suivez le README (configuration Firebase).<p><button class="btn ghost small" id="dreset">Réinitialiser la démo</button></p></div>` : ""}
   <div class="card" id="admins"></div>
-  <div class="card"><b>Changer mon mot de passe</b><input type="password" id="pw1" placeholder="Nouveau mot de passe (6 caractères min.)" style="margin-top:6px"><p><button class="btn ghost" id="svp">Changer</button></p></div>
+  <div class="card" id="pwbox"></div>
   <div class="card"><b>💾 Sauvegarde des leçons et parcours types</b><p class="mute">Téléchargez vos leçons et parcours types dans un fichier (à faire de temps en temps). Les documents de la bibliothèque se sauvegardent en les téléchargeant.</p>
     <div class="row tight"><button class="btn ghost" id="exp">⬇️ Télécharger la sauvegarde</button><button class="btn ghost" id="impb">⬆️ Restaurer une sauvegarde</button><input type="file" id="impf" accept=".json" hidden></div></div>
   <button class="btn ghost full" id="out">Se déconnecter</button>`;
-  $("#svp").onclick = async () => { const pw = $("#pw1").value; if (pw.length < 6) return toast("6 caractères minimum."); try { await C.api.changePassword(pw); $("#pw1").value = ""; toast("Mot de passe changé ✓"); } catch (e) { fail(e); } };
+  passwordBox($("#pwbox"), async pw => { try { await C.api.changePassword(pw); toast("Mot de passe changé ✓"); return true; } catch (e) { fail(e); return false; } });
   $("#exp").onclick = () => {
     const data = { app: "paso-a-paso", v: 2, date: new Date().toISOString(), order: S.order, lessons: S.lessons, templates: S.templates };
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: "application/json" }));

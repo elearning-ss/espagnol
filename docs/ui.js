@@ -165,3 +165,29 @@ export function fileDrop(zone, onFiles, { cls = "over" } = {}) {
   zone.addEventListener("dragleave", e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove(cls); });
   zone.addEventListener("drop", e => { const f = [...e.dataTransfer.files]; zone.classList.remove(cls); if (!f.length) return; e.preventDefault(); e.stopPropagation(); onFiles(f, e); });
 }
+
+/* ---------- changement de mot de passe (avec confirmation) ---------- */
+export function passwordBox(el, onSave) {
+  el.innerHTML = `<b>Changer mon mot de passe</b>
+    <label class="f">Nouveau mot de passe</label>
+    <div class="pwrow"><input type="password" class="pw1" autocomplete="new-password" placeholder="6 caractères minimum"><button type="button" class="ib pweye" title="Afficher / masquer">👁️</button></div>
+    <label class="f">Confirmer le mot de passe</label>
+    <div class="pwrow"><input type="password" class="pw2" autocomplete="new-password" placeholder="Retapez le même mot de passe"></div>
+    <div class="pwhint mute"></div>
+    <p><button class="btn" disabled>Changer le mot de passe</button></p>`;
+  const a = el.querySelector(".pw1"), b = el.querySelector(".pw2"), hint = el.querySelector(".pwhint"), btn = el.querySelector(".btn");
+  const check = () => {
+    const ok1 = a.value.length >= 6, ok2 = b.value.length > 0 && a.value === b.value;
+    hint.innerHTML = !a.value ? "" : !ok1 ? "✗ Trop court : 6 caractères minimum." : !b.value ? "Retapez-le dans le second champ." : ok2 ? '<span style="color:var(--ok)">✓ Les deux mots de passe sont identiques.</span>' : '<span style="color:var(--r)">✗ Les deux mots de passe sont différents.</span>';
+    btn.disabled = !(ok1 && ok2);
+  };
+  a.oninput = b.oninput = check;
+  b.onkeydown = e => { if (e.key === "Enter" && !btn.disabled) btn.click(); };
+  el.querySelector(".pweye").onclick = () => { const t = a.type === "password" ? "text" : "password"; a.type = b.type = t; };
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Enregistrement…";
+    const ok = await onSave(a.value);
+    btn.textContent = "Changer le mot de passe";
+    if (ok) { a.value = b.value = ""; hint.innerHTML = '<span style="color:var(--ok)">✓ Mot de passe changé.</span>'; } else check();
+  };
+}

@@ -303,3 +303,4 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important;user-select:none}
 .vocbar{margin-bottom:8px}
 .veil .veil-a{display:none}.veil.open .veil-a{display:block}.veil.open .veil-t{display:none}
 .veil-t{display:inline-block;font-size:13px;color:var(--mute);background:var(--bg);border:1px dashed var(--line);border-radius:8px;padding:2px 10px;margin-top:3px}
+.pwrow{display:flex;gap:6px;align-items:center}.pwrow input{flex:1}
