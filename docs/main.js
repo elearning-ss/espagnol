@@ -8,6 +8,9 @@ import { SEED, DEFAULT_TEMPLATE } from "./seed.js";
 import { uploadFile } from "./files.js";
 
 $("#back").onclick = () => ui.backFn && ui.backFn();
+// Application installable (PWA)
+try { if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("./sw.js").catch(() => {}); } catch (e) {}
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); window.__installPrompt = e; });
 let api;
 
 (async () => {

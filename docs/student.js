@@ -1,7 +1,7 @@
 // Espace élève : Leçons · Exercices · Mon compte
 import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName } from "./core.js";
 import { previewFile, fileKind, kindIcon, fmtSize, mountAudio } from "./files.js";
-import { passwordBox } from "./ui.js";
+import { passwordBox, installCard } from "./ui.js";
 import { authError } from "./fb.js";
 
 // préférences d'affichage du vocabulaire (mémorisées sur l'appareil)
@@ -215,10 +215,12 @@ function account() {
   ${C.plan.message ? `<div class="prof">💬 <b>Message de votre professeur</b>\n${esc(C.plan.message)}</div>` : ""}
   <div class="card"><b>Mes scores</b>${P.filter(p => p.unlocked).map(p => `<div class="vrow"><div class="row" style="align-items:center"><span>${esc(p.l.emoji)} ${esc(p.l.title)}</span><span class="mute" style="flex:none">${p.score ? p.score + " %" : "—"}</span></div><div class="minibar"><i style="width:${p.score || 0}%"></i></div></div>`).join("") || '<p class="mute">Pas encore de score.</p>'}</div>
   <div class="card"><b>Mon prénom</b><div class="row" style="margin-top:6px"><input type="text" id="nm" value="${esc(C.profile.name || "")}"><button class="btn" style="flex:none" id="svn">Enregistrer</button></div></div>
+  <div class="card" id="instcard"></div>
   <div class="card" id="pwbox"></div>
   <div class="card"><b>Voix</b><p class="mute">Vitesse de lecture de l'espagnol.</p><button class="btn ghost" id="spd2">${voiceState.slow ? "🐢 Lente (toucher pour normale)" : "🔊 Normale (toucher pour lente)"}</button></div>
   ${C.preview ? "" : `<button class="btn ghost full" id="out">Se déconnecter</button>`}`;
   $("#svn").onclick = async () => { if (C.preview) return; C.profile.name = $("#nm").value.trim(); try { await C.api.set("users/" + C.user.uid, { name: C.profile.name }); ui.toast("Prénom enregistré"); } catch (e) { ui.toast(authError(e)); } };
+  installCard($("#instcard"));
   passwordBox($("#pwbox"), async pw => { if (C.preview) { ui.toast("Aperçu : rien n'est modifié."); return false; } try { await C.api.changePassword(pw); ui.toast("Mot de passe changé ✓"); return true; } catch (e) { ui.toast(authError(e), 5000); return false; } });
   $("#spd2").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; account(); };
   const o = $("#out"); if (o) o.onclick = () => C.api.logout();

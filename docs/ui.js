@@ -191,3 +191,21 @@ export function passwordBox(el, onSave) {
     if (ok) { a.value = b.value = ""; hint.innerHTML = '<span style="color:var(--ok)">✓ Mot de passe changé.</span>'; } else check();
   };
 }
+
+/* ---------- carte « Installer l'application » ---------- */
+export function installCard(el) {
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (standalone) { el.innerHTML = `<b>📲 Application installée</b><p class="mute" style="margin:4px 0 0">Vous utilisez Paso a paso comme une application. ✓</p>`; return; }
+  const draw = () => {
+    const p = window.__installPrompt;
+    el.innerHTML = `<b>📲 Installer l'application</b><p class="mute" style="margin:4px 0 8px">Une icône « Paso a paso » sur votre écran d'accueil, ouverture en plein écran, et les leçons déjà ouvertes restent lisibles sans connexion.</p>
+      ${p ? `<button class="btn" data-inst>Installer sur cet appareil</button>`
+        : ios ? `<ol style="margin:0;padding-left:20px;font-size:14px;line-height:1.7"><li>Ouvrez cette page dans <b>Safari</b>.</li><li>Touchez le bouton <b>Partager</b> (le carré avec une flèche vers le haut).</li><li>Choisissez <b>« Sur l'écran d'accueil »</b>, puis <b>Ajouter</b>.</li></ol>`
+        : `<p style="margin:0;font-size:14px">Dans le menu de votre navigateur (⋮ ou ⋯), choisissez <b>« Installer l'application »</b> ou <b>« Ajouter à l'écran d'accueil »</b>.</p>`}`;
+    const b = el.querySelector("[data-inst]");
+    if (b) b.onclick = async () => { p.prompt(); const r = await p.userChoice.catch(() => null); window.__installPrompt = null; if (r && r.outcome === "accepted") el.innerHTML = `<b>📲 Application installée</b><p class="mute" style="margin:4px 0 0">Retrouvez l'icône sur votre écran d'accueil. ✓</p>`; else draw(); };
+  };
+  draw();
+  window.addEventListener("beforeinstallprompt", () => setTimeout(draw), { once: true });
+}

@@ -12,6 +12,7 @@ export async function reload() {
   const a = api();
   const [ls, us, pls, prs, st, fs, ds, ts] = await Promise.all([a.list("lessons"), a.list("users"), a.list("plans"), a.list("progress"), a.get("settings/main"), a.list("files"), a.list("folders"), a.list("templates")]);
   S.order = st?.order || [];
+  S.lastBackup = st?.lastBackup || 0;
   S.lessons = ls.map(l => ({ id: l.id, ...cleanLesson(l), createdAt: l.createdAt, updatedAt: l.updatedAt, source: l.source }));
   sortLessons();
   S.students = us.filter(u => u.role !== "admin").sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));

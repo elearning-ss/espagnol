@@ -108,6 +108,26 @@ export function buildPath(plan = {}, { lessons = [], files = [], folders = [] } 
 export const pathLessons = chapters => chapters.flatMap(c => c.items.filter(i => i.k === "l" && i.obj && i.visible));
 export const newId = () => Math.random().toString(36).slice(2, 10);
 
+/* ---------- clavier d'accents espagnols ---------- */
+const ACC = ["á", "é", "í", "ó", "ú", "ü", "ñ", "¿", "¡"];
+export const accentBar = () => `<div class="accents" role="group" aria-label="Accents espagnols">${ACC.map(c => `<button type="button" class="acc" data-acc="${c}" aria-label="Insérer ${c}">${c}</button>`).join("")}<button type="button" class="acc sh" data-shift title="Majuscules" aria-label="Majuscules" aria-pressed="false">⇧</button></div>`;
+// Insère le caractère dans le champ (au curseur) sans lui faire perdre le focus
+export function bindAccents(root, getInput) {
+  root.querySelectorAll(".accents").forEach(bar => {
+    let up = false;
+    bar.addEventListener("mousedown", e => { if (e.target.closest(".acc")) e.preventDefault(); });
+    bar.addEventListener("click", e => {
+      const b = e.target.closest(".acc"); if (!b) return;
+      if (b.dataset.shift !== undefined) { up = !up; b.setAttribute("aria-pressed", up); b.classList.toggle("on", up); bar.querySelectorAll("[data-acc]").forEach(k => k.textContent = up ? k.dataset.acc.toUpperCase() : k.dataset.acc); return; }
+      const el = getInput(); if (!el || el.disabled) return;
+      const c = up ? b.dataset.acc.toUpperCase() : b.dataset.acc, a = el.selectionStart ?? el.value.length, z = el.selectionEnd ?? a;
+      el.value = el.value.slice(0, a) + c + el.value.slice(z); el.focus(); el.setSelectionRange(a + c.length, a + c.length);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      if (up) { up = false; const sh = bar.querySelector("[data-shift]"); sh.classList.remove("on"); sh.setAttribute("aria-pressed", "false"); bar.querySelectorAll("[data-acc]").forEach(k => k.textContent = k.dataset.acc); }
+    });
+  });
+}
+
 /* ---------- moteur d'exercices ---------- */
 let Q;
 export function runQuiz(o) { Q = { ...o, list: o.list.map(x => ({ ...x })), i: 0, ok: 0, log: [] }; ask(); }
@@ -125,7 +145,7 @@ function ask() {
   } else if (x.t === "w" || x.t === "n") {
     if (x.t === "n" && x.num == null) x.num = Math.floor(Math.random() * ((+x.max || 20) + 1));
     h += x.t === "n" ? `<div class="q">Écoutez et écrivez le nombre en chiffres.</div><p><button class="btn ghost" data-say="${x.num}">🔊 Écouter</button></p>` : `<div class="q">${esc(x.q)}</div>`;
-    h += `<input type="text" id="inp" autocomplete="off" autocapitalize="off" spellcheck="false" ${x.t === "n" ? 'inputmode="numeric"' : 'placeholder="En espagnol…"'}><p><button class="btn full" id="chk">Vérifier</button></p>`;
+    h += `<input type="text" id="inp" autocomplete="off" autocapitalize="off" spellcheck="false" ${x.t === "n" ? 'inputmode="numeric"' : 'placeholder="En espagnol…"'}>${x.t === "n" ? "" : accentBar()}<p><button class="btn full" id="chk">Vérifier</button></p>`;
   } else if (x.t === "o") {
     if (!x.w) x.w = shuf(String(x.a).split(" ").filter(Boolean).map((t, k) => ({ t, k })));
     x.pick = [];
@@ -143,7 +163,7 @@ function ask() {
     result(good, x.o[0], x.x);
   });
   if (x.t === "w" || x.t === "n") {
-    const inp = $("#inp"); inp.focus();
+    const inp = $("#inp"); inp.focus(); bindAccents(m, () => inp);
     const chk = () => {
       if ($("#fb").innerHTML) return; const v = inp.value; if (!v.trim()) return; inp.disabled = true;
       if (x.t === "n") return result(parseInt(v, 10) === x.num, String(x.num));

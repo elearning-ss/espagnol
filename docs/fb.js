@@ -31,7 +31,9 @@ async function initFirebase() {
   const app = A.initializeApp(firebaseConfig);
   const auth = U.getAuth(app);
   auth.languageCode = "fr";
-  const db = F.getFirestore(app);
+  let db;
+  try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+  catch (e) { db = F.getFirestore(app); } // navigateur sans stockage local : on continue sans cache
   const ref = p => F.doc(db, ...p.split("/"));
   const col = p => F.collection(db, ...p.split("/"));
   const back = () => ({ url: location.origin + location.pathname });

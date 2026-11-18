@@ -1,6 +1,6 @@
 // Espace professeur : coque (menu latéral), navigation et compte.
 import { $, $$, esc, ui, cleanLesson } from "./core.js";
-import { confirmDlg, toast, modal, passwordBox } from "./ui.js";
+import { confirmDlg, toast, modal, passwordBox, installCard } from "./ui.js";
 import { DEMO } from "./fb.js";
 import { S, reload, fail, api, normPlan, sName, initials, pickStudents, syncAccess } from "./adm-state.js";
 import { lessonsView, editLesson } from "./adm-lessons.js";
@@ -41,6 +41,7 @@ function accountView() {
   ui.m.innerHTML = `<div class="card"><b>${esc(C.profile.name || "Professeur")}</b><div class="mute">${esc(C.user.email)}</div></div>
   ${DEMO ? `<div class="demo"><b>🧪 Mode démo.</b> Tout est stocké dans ce navigateur. Pour passer en vrai mode, suivez le README (configuration Firebase).<p><button class="btn ghost small" id="dreset">Réinitialiser la démo</button></p></div>` : ""}
   <div class="card" id="admins"></div>
+  <div class="card" id="instcard"></div>
   <div class="card" id="pwbox"></div>
   <div class="card" id="bkp"><b>💾 Sauvegarde complète</b>
     <p class="mute">Un fichier qui contient <b>tout</b> : leçons, parcours types, élèves, parcours de chaque élève (chapitres, états, documents attribués), vos notes et exercices perso, leurs résultats, et l'arborescence de la bibliothèque. À faire régulièrement, et à garder en lieu sûr (il contient les noms et e-mails de vos élèves).</p>
@@ -48,6 +49,7 @@ function accountView() {
     <div class="row tight"><button class="btn" id="exp">⬇️ Télécharger la sauvegarde complète</button><button class="btn ghost" id="impb">⬆️ Restaurer une sauvegarde</button><input type="file" id="impf" accept=".json" hidden></div>
     <div id="bk_msg" class="mute" style="margin-top:8px"></div></div>
   <button class="btn ghost full" id="out">Se déconnecter</button>`;
+  installCard($("#instcard"));
   passwordBox($("#pwbox"), async pw => { try { await C.api.changePassword(pw); toast("Mot de passe changé ✓"); return true; } catch (e) { fail(e); return false; } });
   $("#exp").onclick = () => backup($("#bk_files").checked).catch(fail);
   $("#impb").onclick = () => $("#impf").click();
@@ -146,6 +148,7 @@ async function backup(withFiles) {
     el.download = `paso-a-paso-sauvegarde${withFiles ? "-avec-fichiers" : ""}-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(el); el.click(); el.remove(); setTimeout(() => URL.revokeObjectURL(el.href), 60000);
     const mo = (blob.size / 1048576).toFixed(1).replace(".", ",");
+    S.lastBackup = Date.now(); a.set("settings/main", { lastBackup: S.lastBackup }).catch(() => {});
     msg(`✓ Sauvegarde téléchargée (${mo} Mo) : ${S.lessons.length} leçons, ${S.students.length} élèves, ${S.folders.length} dossiers, ${S.files.length} fichiers${withFiles ? " (avec leur contenu)" : " (sans leur contenu)"}.`);
     toast("Sauvegarde téléchargée ✓");
   } finally { btn.disabled = false; }

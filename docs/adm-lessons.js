@@ -193,7 +193,7 @@ export function editLesson(id, tab = "info") {
       <button data-c="say" title="Rendre le texte sélectionné cliquable et prononcé">🔊 Audio</button><button data-c="audiofile" title="Insérer un fichier audio (MP3…) avec un lecteur lecture / pause / réécouter">🎧 Fichier audio</button>
       <button data-c="note" title="Encadré jaune">📝 Encadré</button><button data-c="model" title="Encadré modèle">💬 Modèle</button>
       <button data-c="table">▦ Tableau</button><button data-c="img">🖼️ Image</button><button data-c="link">🔗 Lien</button>
-      <button data-c="removeFormat" title="Effacer la mise en forme">⌫ Format</button>
+      <select data-c="acc" title="Insérer un caractère espagnol" aria-label="Insérer un caractère espagnol"><option value="">á ñ ¿…</option><option value="á">á</option><option value="é">é</option><option value="í">í</option><option value="ó">ó</option><option value="ú">ú</option><option value="ü">ü</option><option value="ñ">ñ</option><option value="Á">Á</option><option value="É">É</option><option value="Í">Í</option><option value="Ó">Ó</option><option value="Ú">Ú</option><option value="Ñ">Ñ</option><option value="¿">¿</option><option value="¡">¡</option></select><button data-c="removeFormat" title="Effacer la mise en forme">⌫ Format</button>
       <button data-c="import" title="Importer un Word ou PDF dans ce cours">📥 Word/PDF</button>
       <button data-c="html">${htmlMode ? "👁️ Visuel" : "&lt;/&gt; HTML"}</button></div>
       ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true" spellcheck="false">${toEditor(W.course)}</div>`}
@@ -228,7 +228,7 @@ export function editLesson(id, tab = "info") {
     let saved = null;
     const keepSel = () => { const s = getSelection(); saved = s.rangeCount && rte && rte.contains(s.anchorNode) ? s.getRangeAt(0).cloneRange() : null; };
     const restoreSel = () => { if (saved) { const s = getSelection(); s.removeAllRanges(); s.addRange(saved); } };
-    $("#tb").onmousedown = e => { if (e.target.closest("button")) e.preventDefault(); };
+    $("#tb").onmousedown = e => { if (e.target.closest("button")) e.preventDefault(); if (e.target.closest('select[data-c="acc"]')) keepSel(); };
     $("#tb").onclick = $("#tb").onchange = async e => {
       const b = e.target.closest("[data-c]"); if (!b) return;
       const c = b.dataset.c;
@@ -237,6 +237,7 @@ export function editLesson(id, tab = "info") {
       if (c === "import") return $("#cf").click();
       if (htmlMode) return toast("Repassez en mode visuel pour utiliser la barre d'outils.");
       if (c === "block") { if (b.value) exec("formatBlock", b.value); b.value = ""; return; }
+      if (c === "acc") { if (b.value) { restoreSel(); exec("insertText", b.value); } b.value = ""; return; }
       if (c === "say") {
         const s = getSelection(); if (!s.rangeCount) return;
         const node = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement);
