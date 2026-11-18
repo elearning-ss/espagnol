@@ -140,7 +140,7 @@ export function editLesson(id, tab = "info") {
     const pb = $("#pub"); if (pb) pb.onclick = async () => { syncCourse(); W.published = true; dirty = true; await save(); if (!dirty) { toast("Leçon publiée ✓ Ajoutez-la au parcours de vos élèves (onglet 👥 Élèves).", 4000); render(); } else W.published = false; };
     ({ info, course, vocab, ex, stu })[tab]($("#pane"));
   };
-  const syncCourse = () => { const r = $("#rte"), c = $("#code"); if (r) W.course = cleanHtml(r.innerHTML); if (c) W.course = c.value; };
+  const syncCourse = () => { const r = $("#rte"), c = $("#code"); if (r) W.course = fromEditor(cleanHtml(r.innerHTML)); if (c) W.course = c.value; };
   document.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && $("#save")) { e.preventDefault(); save(); } };
   async function save() {
     syncCourse();
@@ -194,9 +194,9 @@ export function editLesson(id, tab = "info") {
       <button data-c="removeFormat" title="Effacer la mise en forme">⌫ Format</button>
       <button data-c="import" title="Importer un Word ou PDF dans ce cours">📥 Word/PDF</button>
       <button data-c="html">${htmlMode ? "👁️ Visuel" : "&lt;/&gt; HTML"}</button></div>
-      ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true" spellcheck="false">${W.course}</div>`}
+      ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true" spellcheck="false">${toEditor(W.course)}</div>`}
       <input type="file" id="cf" accept=".docx,.pdf,.txt,.html,.htm" hidden><input type="file" id="imf" accept="image/*" hidden>
-      <p class="mute">Astuce : sélectionnez une phrase espagnole puis <b>🔊 Audio</b> : elle est entourée de [[ ]] et l'élève peut l'écouter. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
+      <p class="mute">Astuce : sélectionnez une phrase espagnole puis <b>🔊 Audio</b> : elle passe en <span class="say">rouge</span> et l'élève pourra l'écouter en la touchant. Pour retirer l'audio, sélectionnez-la à nouveau et recliquez sur 🔊 Audio. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
     const rte = $("#rte"), code = $("#code");
     if (rte) { rte.oninput = mark; fileDrop(rte, f => importInto(f[0])); }
     if (code) code.oninput = mark;
@@ -214,7 +214,16 @@ export function editLesson(id, tab = "info") {
       if (c === "import") return $("#cf").click();
       if (htmlMode) return toast("Repassez en mode visuel pour utiliser la barre d'outils.");
       if (c === "block") { if (b.value) exec("formatBlock", b.value); b.value = ""; return; }
-      if (c === "say") { const s = getSelection(); if (!s.rangeCount || s.isCollapsed) return toast("Sélectionnez d'abord une phrase."); return exec("insertText", "[[" + s.toString() + "]]"); }
+      if (c === "say") {
+        const s = getSelection(); if (!s.rangeCount) return;
+        const node = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement);
+        const inSay = node && node.closest && node.closest("#rte span.say");
+        if (inSay) { inSay.replaceWith(...inSay.childNodes); mark(); return toast("Audio retiré"); }
+        if (s.isCollapsed) return toast("Sélectionnez d'abord une phrase espagnole.");
+        const frag = s.getRangeAt(0).cloneContents(), tmp = document.createElement("div"); tmp.appendChild(frag);
+        tmp.querySelectorAll("span.say").forEach(x => x.replaceWith(...x.childNodes));
+        return insertHtml(`<span class="say">${tmp.innerHTML}</span>`);
+      }
       if (c === "note" || c === "model") { const s = getSelection(); const t = s && !s.isCollapsed ? esc(s.toString()) : "Votre texte ici"; return insertHtml(`<div class="${c}">${t}</div><p><br></p>`); }
       if (c === "table") {
         keepSel();
@@ -317,6 +326,13 @@ export function editLesson(id, tab = "info") {
     $$("[data-open]").forEach(b => b.onclick = () => S.C.go("student", b.dataset.open));
   }
   render();
+}
+// Dans l'éditeur, les phrases audio [[…]] s'affichent comme l'élève les voit (en rouge), sans crochets.
+const toEditor = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (m, t) => `<span class="say">${t}</span>`);
+function fromEditor(h) {
+  const d = document.createElement("div"); d.innerHTML = h;
+  d.querySelectorAll("span.say").forEach(x => { if (!x.textContent.trim()) x.replaceWith(...x.childNodes); else x.outerHTML = "[[" + x.innerHTML + "]]"; });
+  return d.innerHTML;
 }
 export const stateSeg = (attr, st) => `<span class="seg">${[["open", "🔓", "Ouverte"], ["locked", "🔒", "Verrouillée"], ["hidden", "🙈", "Cachée"]].map(([v, i, t]) => `<button class="${st === v ? "on" : ""}" data-st="${attr}|${v}" title="${t}">${i}</button>`).join("")}</span>`;
 

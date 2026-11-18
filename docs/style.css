@@ -106,7 +106,7 @@ label.f{display:block;font-size:13px;font-weight:600;color:var(--mute);margin:10
 .toolbar button,.toolbar select{font-size:13px;padding:5px 9px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;width:auto}
 .rte{min-height:320px;max-height:70vh;overflow:auto;border:2px solid var(--line);border-radius:0 0 10px 10px;padding:12px;background:var(--card)}
 .rte:focus{outline:none;border-color:var(--g)}
-.rte .say{border-bottom-style:dashed}
+.rte .say{border-bottom-style:dashed;cursor:text}.rte .say::after{content:" 🔊";font-size:.7em;opacity:.55}
 textarea.code{font-family:ui-monospace,Menlo,monospace;font-size:13px;min-height:320px;border-radius:0 0 10px 10px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .grid3{display:grid;grid-template-columns:2fr 2fr 1.5fr auto;gap:6px;align-items:center}
