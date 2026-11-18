@@ -198,7 +198,14 @@ export function editLesson(id, tab = "info") {
       <input type="file" id="cf" accept=".docx,.pdf,.txt,.html,.htm" hidden><input type="file" id="imf" accept="image/*" hidden>
       <p class="mute">Pour rendre une phrase espagnole <b>écoutable</b> (en <span class="say">rouge</span>) : tapez-la entre deux étoiles, <code>**Me llamo Julien.**</code>, elle devient rouge dès la seconde paire d'étoiles. Vous pouvez aussi la sélectionner puis cliquer sur <b>🔊 Audio</b>. Pour retirer l'audio : cliquez dans la phrase rouge puis sur 🔊 Audio. Les <code>**…**</code> écrits dans un Word importé sont reconnus aussi. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
     const rte = $("#rte"), code = $("#code");
-    if (rte) { rte.oninput = () => { while (autoSay(rte)); mark(); }; fileDrop(rte, f => importInto(f[0])); }
+    if (rte) {
+      const conv = () => { let n = 0; while (autoSay(rte) && n++ < 200); };
+      rte.oninput = () => { conv(); mark(); };
+      rte.addEventListener("keyup", conv); rte.addEventListener("blur", conv);
+      rte.addEventListener("paste", () => setTimeout(() => { conv(); mark(); }));
+      conv();
+      fileDrop(rte, f => importInto(f[0]));
+    }
     if (code) code.oninput = mark;
     const exec = (c, v = null) => { rte.focus(); document.execCommand(c, false, v); mark(); };
     const insertHtml = h => { rte.focus(); document.execCommand("insertHTML", false, h); mark(); };
@@ -332,7 +339,7 @@ const toEditor = h => String(h || "").replace(/\[\[(.+?)\]\]/g, (m, t) => `<span
 // Pendant la frappe : **texte** devient aussitôt une phrase audio (rouge)
 function autoSay(rte) {
   const w = document.createTreeWalker(rte, NodeFilter.SHOW_TEXT); let n, hit = null;
-  while ((n = w.nextNode())) { if (n.parentElement.closest("span.say")) continue; const m = /\*\*([^*]+?)\*\*/.exec(n.textContent); if (m) { hit = { n, m }; break; } }
+  while ((n = w.nextNode())) { if (n.parentElement.closest("span.say")) continue; const m = /[*＊]{2}([^*＊]+?)[*＊]{2}/.exec(n.textContent); if (m) { hit = { n, m }; break; } }
   if (!hit) return false;
   const { n: node, m } = hit, after = node.splitText(m.index); after.textContent = after.textContent.slice(m[0].length);
   const sp = document.createElement("span"); sp.className = "say"; sp.textContent = m[1];
