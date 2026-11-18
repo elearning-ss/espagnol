@@ -1,5 +1,5 @@
 // Espace élève : Leçons · Exercices · Mon compte
-import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents } from "./core.js";
+import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents, hwStatus, fmtDue } from "./core.js";
 import { previewFile, fileKind, kindIcon, fmtSize, mountAudio, fileBlob } from "./files.js";
 import { passwordBox, installCard } from "./ui.js";
 import { authError } from "./fb.js";
@@ -11,7 +11,7 @@ let C; // contexte : { api, user, profile, lessons, files, folders, plan, progre
 export function startStudent(ctx) {
   C = ctx;
   C.progress = Object.assign({ done: {}, attempts: {}, xp: 0, cards: {}, seen: {} }, C.progress || {});
-  C.plan = Object.assign({ chapters: [], state: {}, notes: {}, extra: {} }, C.plan || {});
+  C.plan = Object.assign({ chapters: [], state: {}, notes: {}, extra: {}, homework: [] }, C.plan || {});
   C.files = C.files || []; C.folders = C.folders || [];
   C.progress.weak = Array.isArray(C.progress.weak) ? C.progress.weak : [];
   C.progress.myVocab = Array.isArray(C.progress.myVocab) ? C.progress.myVocab : [];
@@ -28,7 +28,14 @@ export function startStudent(ctx) {
 const chapters = () => buildPath(C.plan, { lessons: C.lessons, files: C.files, folders: C.folders }, C.progress).map(c => ({ ...c, items: c.items.filter(i => i.visible) })).filter(c => c.items.length);
 // leçons visibles, à plat, au format attendu par le reste du code : { l, unlocked, score, passed }
 const path = () => pathLessons(chapters()).map(i => ({ l: i.obj, unlocked: i.unlocked, score: i.score, passed: i.passed }));
-function go(v) { $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === v)); ({ lessons, exercises, account })[v](); }
+function go(v) { $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === v)); ({ lessons, exercises, account })[v](); hwBadge(); }
+// devoirs : ceux à faire d'abord (les plus urgents en tête), puis les terminés récents
+const homework = () => (C.plan.homework || []).map(h => ({ h, st: hwStatus(h, { lessons: C.lessons, files: C.files }, C.progress) }))
+  .sort((a, b) => (a.st.done - b.st.done) || String(a.h.due || "9").localeCompare(String(b.h.due || "9")));
+function hwBadge() {
+  const n = homework().filter(x => !x.st.done).length, b = $('#nav [data-nav="lessons"]'); if (!b) return;
+  b.querySelector(".nb")?.remove(); if (n) b.insertAdjacentHTML("beforeend", `<span class="nb">${n}</span>`);
+}
 async function saveProgress() {
   if (C.preview) return;
   C.progress.last = Date.now();
@@ -49,6 +56,7 @@ function lessons() {
    ${next ? `<button class="btn" style="background:#fff;color:var(--g)" data-open="${next.l.id}">${C.progress.seen[next.l.id] ? "Continuer" : "Commencer"} : ${esc(next.l.emoji)} ${esc(next.l.title)}</button>` : (P.length && passed === P.length ? "<b>Parcours terminé, ¡enhorabuena! 🎉</b>" : "")}</div>`;
   h += noVoiceWarning();
   if (C.plan.message) h += `<div class="prof">💬 <b>Message de votre professeur</b>\n${esc(C.plan.message)}</div>`;
+  h += hwBlock();
   let n = 0;
   CH.forEach(c => {
     const ls = c.items.filter(i => i.k === "l"), ok = ls.filter(i => i.passed).length, col = collapsedCh.has(c.id);
@@ -72,14 +80,43 @@ function lessons() {
   if (!CH.length) h += `<div class="card center mute">Aucune leçon pour l'instant.</div>`;
   ui.m.innerHTML = h;
   $$("[data-open]", ui.m).forEach(b => b.onclick = () => lesson(b.dataset.open));
+  bindHw();
   $$("[data-ch]", ui.m).forEach(b => b.onclick = () => { const id = b.dataset.ch; collapsedCh.has(id) ? collapsedCh.delete(id) : collapsedCh.add(id); lessons(); });
   $$("[data-file]", ui.m).forEach(b => b.onclick = () => openFile(b.dataset.file));
   $$("[data-dir]", ui.m).forEach(b => b.onclick = () => folder(b.dataset.dir, b.dataset.dir));
 }
+/* ---------- devoirs ---------- */
+let showDoneHw = false;
+function hwBlock() {
+  const all = homework(); if (!all.length) return "";
+  const todo = all.filter(x => !x.st.done), done = all.filter(x => x.st.done);
+  const one = ({ h, st }) => `<div class="card hw ${st.done ? "ok" : st.late ? "late" : ""}">
+    <div class="hw-h"><b>${esc(h.title || "Devoir")}</b><span class="when">${st.done ? "✓ terminé" : esc(st.when)}</span></div>
+    ${h.note ? `<div class="mute" style="white-space:pre-wrap;margin:2px 0 6px">${esc(h.note)}</div>` : ""}
+    <div class="minibar"><i style="width:${st.n ? st.nd / st.n * 100 : 0}%"></i></div>
+    ${st.items.map(it => `<button class="hw-it ${it.done ? "done" : ""}" data-hw="${h.id}" data-i="${it.i}" ${it.ok ? "" : "disabled"}><span class="ck">${it.done ? "✓" : ""}</span><span class="lb">${esc(it.label)}</span>${it.k === "t" ? "" : "<span>›</span>"}</button>`).join("")}</div>`;
+  return `<div class="sch"><div class="sch-h" style="cursor:default"><span>📌</span><b>Mes devoirs</b>${todo.length ? `<span class="mute">${todo.length} à faire</span>` : ""}</div>
+    ${todo.map(one).join("") || `<div class="card center mute">Tous vos devoirs sont faits. ¡Genial! 🎉</div>`}
+    ${done.length ? `<button class="btn ghost small" id="hwdone">${showDoneHw ? "Masquer" : "Voir"} les devoirs terminés (${done.length})</button>${showDoneHw ? done.slice(0, 8).map(one).join("") : ""}` : ""}</div>`;
+}
+function bindHw() {
+  const t = $("#hwdone"); if (t) t.onclick = () => { showDoneHw = !showDoneHw; lessons(); };
+  $$("[data-hw]", ui.m).forEach(b => b.onclick = async () => {
+    const h = C.plan.homework.find(x => x.id === b.dataset.hw), it = h?.items[+b.dataset.i]; if (!it) return;
+    if (it.k === "l") return path().find(x => x.l.id === it.id)?.unlocked ? lesson(it.id) : ui.toast("Votre professeur doit encore ouvrir cette leçon.");
+    if (it.k === "f") { openFile(it.id); return setTimeout(lessons, 300); }
+    if (it.k === "r") { go("exercises"); return review("all"); }
+    if (C.preview) return ui.toast("Aperçu : rien n'est enregistré.");
+    C.progress.hw = C.progress.hw || {}; const m = C.progress.hw[h.id] = C.progress.hw[h.id] || {};
+    m[+b.dataset.i] ? delete m[+b.dataset.i] : m[+b.dataset.i] = Date.now();
+    await saveProgress(); lessons(); hwBadge();
+  });
+}
+
 function openFile(id) {
   const f = C.files.find(x => x.id === id); if (!f) return;
   if (!C.progress.opened) C.progress.opened = {};
-  if (!C.preview && !C.progress.opened[id]) { C.progress.opened[id] = Date.now(); saveProgress(); }
+  if (!C.preview) { C.progress.opened[id] = Date.now(); saveProgress(); }
   previewFile(C.api, f);
 }
 // Dossier partagé par le professeur : petit explorateur en lecture seule
@@ -249,7 +286,7 @@ function review(mode = "all") {
   $("#go").onclick = card;
 }
 function card() {
-  if (R.i >= R.list.length) { ui.m.innerHTML = `<div class="card center"><div class="big">✨</div><p>Session terminée : ${R.ok} / ${R.list.length} connues du premier coup.</p>${C.progress.weak.length && R.mode !== "weak" ? `<p class="mute">Il vous reste ${C.progress.weak.length} mot(s) à revoir.</p>` : ""}<button class="btn" id="bk">Retour</button></div>`; $("#bk").onclick = exercises; return; }
+  if (R.i >= R.list.length) { if (!C.preview) { C.progress.revAt = Date.now(); saveProgress(); } ui.m.innerHTML = `<div class="card center"><div class="big">✨</div><p>Session terminée : ${R.ok} / ${R.list.length} connues du premier coup.</p>${C.progress.weak.length && R.mode !== "weak" ? `<p class="mute">Il vous reste ${C.progress.weak.length} mot(s) à revoir.</p>` : ""}<button class="btn" id="bk">Retour</button></div>`; $("#bk").onclick = exercises; return; }
   const c = R.list[R.i], fr = C.progress.frFirst;
   ui.m.innerHTML = `<div class="prog"><i style="width:${R.i / R.list.length * 100}%"></i></div>
   <div class="card flash" id="fl"><div class="mute" style="font-size:13px;font-weight:400">${esc(c.src)}</div><div>${esc(fr ? c.fr : c.it)}</div>

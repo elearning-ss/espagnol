@@ -295,3 +295,31 @@ export function autoVocabEx(vocab, n = 3) {
       : { t: "q", q: `« ${v[0]} » veut dire…`, o: [v[1], ...wrong], voc: v };
   });
 }
+
+/* ---------- devoirs datés ----------
+   plan.homework = [{ id, title, due: "AAAA-MM-JJ", note, at, items: [{ k: "l"|"f"|"r"|"t", id?, txt? }] }]
+   Une leçon est faite si un essai réussi a lieu après la date du devoir ; un document, s'il a été ouvert ;
+   la révision, si une séance est terminée ; une consigne libre, si l'élève la coche. */
+export const isoDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+export const fmtDue = s => s ? new Date(s + "T12:00").toLocaleDateString("fr-BE", { weekday: "long", day: "numeric", month: "long" }) : "";
+export function hwStatus(hw, { lessons = [], files = [] } = {}, progress = {}) {
+  const at = hw.at || 0, ticks = progress.hw?.[hw.id] || {};
+  const items = (hw.items || []).map((it, i) => {
+    let label = "", done = false, ok = true;
+    if (it.k === "l") {
+      const l = lessons.find(x => x.id === it.id); ok = !!l; label = l ? `${l.emoji || "📘"} ${l.title}` : "Leçon supprimée";
+      const pass = l?.passScore ?? 70;
+      done = (progress.attempts?.[it.id] || []).some(a => a.at >= at && a.pct >= pass);
+    } else if (it.k === "f") {
+      const f = files.find(x => x.id === it.id); ok = !!f; label = f ? `📄 ${f.name}` : "Document supprimé";
+      done = (progress.opened?.[it.id] || 0) >= at;
+    } else if (it.k === "r") { label = "🃏 Réviser le vocabulaire"; done = (progress.revAt || 0) >= at; }
+    else { label = "✍️ " + (it.txt || ""); done = !!ticks[i]; }
+    return { ...it, i, label, done, ok };
+  });
+  const n = items.length, nd = items.filter(x => x.done).length, done = n > 0 && nd === n;
+  const t = isoDay(), late = !done && hw.due && hw.due < t;
+  const days = hw.due ? Math.round((new Date(hw.due + "T12:00") - new Date(t + "T12:00")) / 864e5) : null;
+  const when = days === null ? "" : days < 0 ? `en retard de ${-days} jour${days < -1 ? "s" : ""}` : days === 0 ? "pour aujourd'hui" : days === 1 ? "pour demain" : `pour ${fmtDue(hw.due)}`;
+  return { items, n, nd, done, late, days, when };
+}

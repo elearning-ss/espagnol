@@ -1,5 +1,5 @@
 // Élèves (liste, invitation, fiche, parcours, suivi) et parcours types.
-import { $, $$, esc, ui, fmtDate, buildPath, pathLessons, ikey, newId, typeName } from "./core.js";
+import { $, $$, esc, ui, fmtDate, buildPath, pathLessons, ikey, newId, typeName, hwStatus, isoDay, fmtDue } from "./core.js";
 import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast } from "./ui.js";
 import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, sName, initials, pickStudents } from "./adm-state.js";
 import { pathBuilder } from "./adm-path.js";
@@ -88,7 +88,7 @@ export function studentDetail(uid, tab = "path") {
     ui.m.innerHTML = `<div class="card shead"><div class="row tight" style="align-items:center">${av(s, "xl")}<div style="flex:1;min-width:200px"><h2 style="margin:0">${esc(sName(s))}</h2><div class="mute">${esc(s.email)}${s.disabled ? ' · <span class="tag D">désactivé</span>' : ""}</div></div>
         <button class="btn ghost small" id="s_prev">👁️ Voir comme l'élève</button><button class="ib" id="s_more" title="Plus d'actions">⋯</button></div>
       <div class="kpi" style="margin:12px 0 0"><div><b>${st.passed}/${st.total}</b><span class="mute">leçons réussies</span></div><div><b>${st.open}</b><span class="mute">leçons ouvertes</span></div><div><b>${st.docs}</b><span class="mute">documents</span></div><div><b>${st.att}</b><span class="mute">séries d'exercices</span></div><div><b style="font-size:15px">${fmtDate(st.last)}</b><span class="mute">dernière activité</span></div></div></div>
-    <div class="tabs"><button data-t="path" class="${tab === "path" ? "on" : ""}">🧭 Parcours</button><button data-t="track" class="${tab === "track" ? "on" : ""}">📊 Suivi</button><button data-t="voc" class="${tab === "voc" ? "on" : ""}">📒 Vocabulaire</button><button data-t="set" class="${tab === "set" ? "on" : ""}">⚙️ Réglages</button></div>
+    <div class="tabs"><button data-t="path" class="${tab === "path" ? "on" : ""}">🧭 Parcours</button><button data-t="track" class="${tab === "track" ? "on" : ""}">📊 Suivi</button><button data-t="hw" class="${tab === "hw" ? "on" : ""}">📌 Devoirs${pendingHw() ? ` <span class="nbi">${pendingHw()}</span>` : ""}</button><button data-t="prep" class="${tab === "prep" ? "on" : ""}">🗒️ Séance</button><button data-t="voc" class="${tab === "voc" ? "on" : ""}">📒 Vocabulaire</button><button data-t="set" class="${tab === "set" ? "on" : ""}">⚙️ Réglages</button></div>
     <div id="pane"></div>
     <div class="sticky-save"><span class="mute" style="margin-right:auto">${P.mode === "auto" ? "Déblocage automatique" : "Déblocage manuel"} · Ctrl+S pour enregistrer</span><button class="btn ghost hide" id="pundo">↩️ Annuler les modifications</button><button class="btn" id="psave" ${dirty ? "" : "disabled"}>${dirty ? "💾 Enregistrer" : "✓ Enregistré"}</button></div>`;
     if (dirty) $("#pundo").classList.remove("hide");
@@ -120,6 +120,8 @@ export function studentDetail(uid, tab = "path") {
     }
     if (tab === "track") track(pane);
     if (tab === "voc") vocTab(pane);
+    if (tab === "hw") hwTab(pane);
+    if (tab === "prep") prepTab(pane);
     if (tab === "set") settings(pane);
   };
 
@@ -132,6 +134,103 @@ export function studentDetail(uid, tab = "path") {
       <div class="card"><b>Activité récente</b>${recent.map(r => { const l = S.lessons.find(x => x.id === r.id); return `<div class="vrow">${fmtDate(r.at)} · ${l ? esc(l.emoji + " " + l.title) : "Leçon supprimée"} · <b>${r.pct} %</b></div>`; }).join("") || `<p class="mute">Pas encore d'activité.</p>`}</div>
       <div class="card"><b>Documents accessibles</b>${S.files.filter(f => (f.students || []).includes(uid)).map(f => `<div class="vrow">${kindIcon(fileKind(f.name, f.type))} ${esc(f.name)}</div>`).join("") || `<p class="mute">Aucun document. Glissez-en depuis la bibliothèque dans son parcours.</p>`}</div>`;
   }
+  /* ---------- devoirs ---------- */
+  const HL = () => ({ lessons: S.lessons, files: S.files });
+  const pendingHw = () => (P.homework || []).filter(h => !hwStatus(h, HL(), pr).done).length;
+  function hwCard(h, { edit = true } = {}) {
+    const st = hwStatus(h, HL(), pr);
+    return `<div class="card hw ${st.done ? "ok" : st.late ? "late" : ""}"><div class="hw-h"><b>${esc(h.title || "Devoir")}</b><span class="when">${st.done ? "✓ terminé" : `${esc(st.when)} · ${st.nd}/${st.n}`}</span>
+      ${edit ? `<span class="row tight" style="flex:none"><button class="ib" data-hwe="${h.id}" title="Modifier">✏️</button><button class="ib" data-hwd="${h.id}" title="Supprimer">🗑️</button></span>` : ""}</div>
+      ${h.note ? `<div class="mute" style="white-space:pre-wrap">${esc(h.note)}</div>` : ""}
+      ${st.items.map(it => `<div class="hw-it ${it.done ? "done" : ""}" style="cursor:default"><span class="ck">${it.done ? "✓" : ""}</span><span class="lb">${esc(it.label)}</span></div>`).join("")}
+      <small class="mute">Donné le ${fmtDate(h.at)}${h.due ? ` · à faire pour ${esc(fmtDue(h.due))}` : ""}</small></div>`;
+  }
+  function hwTab(p) {
+    P.homework = P.homework || [];
+    const L = P.homework.map(h => ({ h, st: hwStatus(h, HL(), pr) })).sort((a, b) => (a.st.done - b.st.done) || String(b.h.due).localeCompare(String(a.h.due)));
+    p.innerHTML = `<div class="card row tight" style="align-items:center"><div style="flex:1"><b>📌 Devoirs de ${esc(sName(s))}</b><div class="mute">Ils s'affichent en haut de son espace avec la date. Leçons, documents et révision se cochent tout seuls quand il les fait.</div></div><button class="btn" id="hw_new">+ Donner un devoir</button></div>
+      ${L.map(x => hwCard(x.h)).join("") || `<div class="card center mute">Aucun devoir pour l'instant.</div>`}`;
+    $("#hw_new").onclick = () => hwEdit();
+    $$("[data-hwe]", p).forEach(b => b.onclick = () => hwEdit(P.homework.find(h => h.id === b.dataset.hwe)));
+    $$("[data-hwd]", p).forEach(b => b.onclick = async () => { if (!await confirmDlg("Supprimer ce devoir ?", { ok: "Supprimer", danger: true })) return; P.homework = P.homework.filter(h => h.id !== b.dataset.hwd); mark(); await save(); render(); });
+  }
+  async function hwEdit(h0, preset) {
+    const isNew = !h0, h = h0 ? clone(h0) : { id: newId(), title: "", due: isoDay(new Date(Date.now() + 7 * 864e5)), note: "", items: preset || [] };
+    const Pth = buildPath(P, lib(), pr), ls = pathLessons(Pth);
+    const fids = new Set(Pth.flatMap(c => c.items.filter(i => i.k === "f" && i.obj).map(i => i.id)));
+    S.files.forEach(f => { if ((f.students || []).includes(uid)) fids.add(f.id); });
+    const fs = S.files.filter(f => fids.has(f.id)).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    const has = (k, id) => h.items.some(i => i.k === k && (id === undefined || i.id === id));
+    const free = h.items.filter(i => i.k === "t").map(i => i.txt).join("\n");
+    const body = `<label class="f">Titre</label><input type="text" id="hw_t" value="${esc(h.title)}" placeholder="ex. Pour jeudi">
+      <div class="grid2"><div><label class="f">À faire pour le</label><input type="date" id="hw_d" value="${esc(h.due || "")}"></div><div></div></div>
+      <label class="f">Mot pour l'élève (facultatif)</label><textarea id="hw_n" rows="2" placeholder="ex. Concentre-toi sur les verbes irréguliers.">${esc(h.note || "")}</textarea>
+      <label class="f">Leçons à travailler <small class="mute">(faites quand l'exercice est réussi)</small></label>
+      <div class="hwpick">${ls.map(i => `<label><input type="checkbox" data-hl="${i.id}" ${has("l", i.id) ? "checked" : ""}> ${esc(i.obj.emoji)} ${esc(i.obj.title)} ${i.unlocked ? "" : `<small class="mute">(sera ouverte)</small>`}${i.score ? ` <small class="mute">· ${i.score} %</small>` : ""}</label>`).join("") || `<p class="mute">Aucune leçon dans son parcours.</p>`}</div>
+      ${fs.length ? `<label class="f">Documents à lire ou écouter <small class="mute">(faits quand il les ouvre)</small></label><div class="hwpick">${fs.map(f => `<label><input type="checkbox" data-hf="${f.id}" ${has("f", f.id) ? "checked" : ""}> ${kindIcon(fileKind(f.name, f.type))} ${esc(f.name)}</label>`).join("")}</div>` : ""}
+      <label class="hwr"><input type="checkbox" id="hw_r" ${has("r") ? "checked" : ""}> 🃏 Faire une séance de révision du vocabulaire</label>
+      <label class="f">Autres consignes <small class="mute">(une par ligne, l'élève les coche lui-même)</small></label><textarea id="hw_x" rows="3" placeholder="ex. Écrire 5 phrases sur ton week-end&#10;Regarder un épisode en espagnol">${esc(free)}</textarea>`;
+    const r = await modal({ title: isNew ? "📌 Nouveau devoir" : "📌 Modifier le devoir", wide: true, body, buttons: [{ label: "Annuler", value: null }, { label: isNew ? "Donner le devoir" : "Enregistrer", primary: true, act: a => {
+      const B = a.body, items = [
+        ...$$("[data-hl]:checked", B).map(e => ({ k: "l", id: e.dataset.hl })),
+        ...$$("[data-hf]:checked", B).map(e => ({ k: "f", id: e.dataset.hf })),
+        ...($("#hw_r", B).checked ? [{ k: "r" }] : []),
+        ...$("#hw_x", B).value.split("\n").map(x => x.trim()).filter(Boolean).map(txt => ({ k: "t", txt })),
+      ];
+      if (!items.length) { toast("Choisissez au moins une chose à faire."); return false; }
+      return { title: $("#hw_t", B).value.trim() || "Devoir", due: $("#hw_d", B).value, note: $("#hw_n", B).value.trim(), items };
+    } }] }).result;
+    if (!r) return;
+    // les consignes cochées par l'élève restent cochées si leur texte n'a pas changé : on ne touche pas aux autres
+    Object.assign(h, r); if (isNew) h.at = Date.now();
+    P.homework = P.homework || [];
+    if (isNew) P.homework.push(h); else P.homework[P.homework.findIndex(x => x.id === h.id)] = h;
+    // une leçon donnée en devoir doit être accessible
+    let opened = 0;
+    for (const c of buildPath(P, lib(), pr)) for (const i of c.items) if (i.k === "l" && !i.unlocked && h.items.some(x => x.k === "l" && x.id === i.id)) { P.state[i.key] = "open"; opened++; }
+    mark(); await save(); if (opened) toast(`Devoir donné ✓ · ${opened} leçon(s) ouverte(s) pour l'occasion`);
+    tab = "hw"; render();
+  }
+
+  /* ---------- préparation de séance ---------- */
+  function prepTab(p) {
+    const since = P.lastSession || Date.now() - 7 * 864e5, sinceTxt = P.lastSession ? `depuis la dernière séance (${fmtDate(P.lastSession)})` : "sur les 7 derniers jours";
+    const Pth = buildPath(P, lib(), pr), ls = pathLessons(Pth);
+    const att = Object.entries(pr.attempts || {}).flatMap(([id, a]) => a.map(x => ({ id, ...x }))).filter(a => a.at >= since).sort((a, b) => a.at - b.at);
+    const opened = Object.entries(pr.opened || {}).filter(([, t]) => t >= since).map(([id]) => S.files.find(f => f.id === id)).filter(Boolean);
+    const weak = [...(pr.weak || [])].sort((a, b) => (b.n || 1) - (a.n || 1) || b.at - a.at);
+    const struggling = ls.filter(i => i.unlocked && i.score && !i.passed);
+    const hw = (P.homework || []).map(h => ({ h, st: hwStatus(h, HL(), pr) })).filter(x => !x.st.done || (x.h.due && x.h.due >= isoDay(new Date(since))));
+    const byL = {}; att.forEach(a => (byL[a.id] = byL[a.id] || []).push(a.pct));
+    const nextL = ls.find(i => !i.unlocked);
+    p.innerHTML = `<div class="card row tight noprint" style="align-items:center"><div style="flex:1"><b>🗒️ Préparer la séance avec ${esc(sName(s))}</b><div class="mute">Ce qu'il a fait ${sinceTxt}, ses difficultés et ses devoirs, sur une page.</div></div>
+        <button class="btn ghost" id="pp_print">🖨️ Imprimer</button><button class="btn" id="pp_done">✅ Séance faite aujourd'hui</button></div>
+      <div class="prep">
+      <div class="card"><h3>📈 Activité ${sinceTxt}</h3>
+        ${Object.keys(byL).length ? Object.entries(byL).map(([id, v]) => { const l = S.lessons.find(x => x.id === id); return `<div class="vrow">${l ? esc(l.emoji + " " + l.title) : "Leçon supprimée"} · ${v.length} essai${v.length > 1 ? "s" : ""} : ${v.map(x => `<b style="color:${x >= (l?.passScore ?? 70) ? "var(--ok)" : "var(--r)"}">${x} %</b>`).join(" → ")}</div>`; }).join("") : `<p class="mute">Aucun exercice fait sur la période.</p>`}
+        ${opened.length ? `<div class="vrow">📄 Documents ouverts : ${opened.map(f => esc(f.name)).join(", ")}</div>` : ""}
+        ${(pr.revAt || 0) >= since ? `<div class="vrow">🃏 Dernière révision du vocabulaire : ${fmtDate(pr.revAt)}</div>` : ""}
+        <div class="vrow mute">Dernière connexion : ${fmtDate(pr.last)}</div></div>
+      <div class="card"><h3>📌 Devoirs</h3>${hw.length ? hw.map(({ h, st }) => `<div class="vrow"><b>${esc(h.title)}</b> · ${st.done ? `<span style="color:var(--ok)">✓ fait</span>` : `<span style="color:${st.late ? "var(--r)" : "inherit"}">${st.nd}/${st.n} · ${esc(st.when)}</span>`}${st.done ? "" : `<br><small class="mute">Reste : ${st.items.filter(i => !i.done).map(i => esc(i.label)).join(" · ")}</small>`}</div>`).join("") : `<p class="mute">Aucun devoir en cours.</p>`}
+        <p class="noprint"><button class="btn ghost small" id="pp_hw">+ Donner un devoir</button></p></div>
+      <div class="card"><h3>🎯 À retravailler</h3>
+        ${struggling.length ? `<p><b>Leçons pas encore réussies :</b> ${struggling.map(i => `${esc(i.obj.title)} (${i.score} %)`).join(", ")}</p>` : ""}
+        ${weak.length ? `<p><b>Erreurs fréquentes en exercice :</b></p>${weak.slice(0, 12).map(w => `<div class="vrow"><b>${esc(w.it)}</b> — ${esc(w.fr)}${(w.n || 1) > 1 ? ` <span class="tag D">×${w.n}</span>` : ""}</div>`).join("")}
+          <p class="noprint"><button class="btn ghost small" id="pp_rev">📌 Donner ces erreurs en révision</button></p>` : ""}
+        ${!struggling.length && !weak.length ? `<p class="mute">Rien de particulier : tout est réussi. 👏</p>` : ""}</div>
+      <div class="card"><h3>➡️ Pour la suite</h3>
+        ${nextL ? `<p>Prochaine leçon du parcours : <b>${esc(nextL.obj.emoji)} ${esc(nextL.obj.title)}</b> ${nextL.state === "hidden" ? "(cachée)" : "(verrouillée)"}</p><p class="noprint"><button class="btn ghost small" id="pp_open">🔓 L'ouvrir maintenant</button></p>` : `<p class="mute">Toutes les leçons du parcours sont ouvertes.</p>`}
+        <label class="f">Mes notes pour la séance <small class="mute">(gardées sur cet ordinateur uniquement, jamais visibles par l'élève)</small></label><textarea id="pp_notes" rows="5" placeholder="ex. Revoir ser/estar, lui parler du DELE…"></textarea></div>
+      </div>`;
+    const NK = "paso_prep_" + uid; try { $("#pp_notes").value = localStorage.getItem(NK) || ""; } catch (e) {}
+    $("#pp_notes").oninput = e => { try { localStorage.setItem(NK, e.target.value); } catch (x) {} };
+    $("#pp_print").onclick = () => window.print();
+    $("#pp_done").onclick = async () => { P.lastSession = Date.now(); mark(); await save(); toast("Séance notée ✓ : la prochaine préparation partira d'aujourd'hui."); render(); };
+    $("#pp_hw").onclick = () => hwEdit();
+    const rv = $("#pp_rev"); if (rv) rv.onclick = () => hwEdit(null, [{ k: "r" }]).then(() => {});
+    const op = $("#pp_open"); if (op) op.onclick = async () => { P.state[nextL.key] = "open"; mark(); await save(); render(); };
+  }
+
   function vocTab(p) {
     P.vocab = Array.isArray(P.vocab) ? P.vocab : [];
     const mine = (pr.myVocab || []).filter(v => v && v[0]), weak = pr.weak || [];
@@ -253,6 +352,11 @@ export function dashboardView() {
       }
     }
     const pr = S.progress[s.id] || {};
+    for (const h of plan.homework || []) {
+      const st = hwStatus(h, { lessons: S.lessons, files: S.files }, pr);
+      if (st.late) todo.push({ s, ic: "⏰", txt: `n'a pas fini le devoir « ${esc(h.title)} » (${st.nd}/${st.n}, ${esc(st.when)})`, btn: "Voir ses devoirs", act: () => S.C.go("student", s.id, "hw") });
+      else if (st.done && h.due && h.due >= isoDay(new Date(Date.now() - 3 * 864e5))) todo.push({ s, ic: "✅", txt: `a terminé le devoir « ${esc(h.title)} »`, btn: "Préparer la séance", act: () => S.C.go("student", s.id, "prep") });
+    }
     const lastAtt = Object.entries(pr.attempts || {}).flatMap(([id, a]) => a.map(x => ({ id, ...x }))).sort((a, b) => b.at - a.at)[0];
     if (lastAtt && lastAtt.pct < 50 && Date.now() - lastAtt.at < 14 * 864e5) { const l = S.lessons.find(x => x.id === lastAtt.id); if (l) todo.push({ s, ic: "🆘", txt: `a eu ${lastAtt.pct} % à « ${esc(l.title)} »`, btn: "Ajouter une note / un exercice", act: () => S.C.go("student", s.id) }); }
     const d = daysAgo(st.last);

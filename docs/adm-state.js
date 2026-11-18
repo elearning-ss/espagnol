@@ -25,7 +25,7 @@ export async function reload() {
 export function sortLessons() { const i = id => { const k = S.order.indexOf(id); return k < 0 ? 1e6 : k; }; S.lessons.sort((a, b) => i(a.id) - i(b.id)); }
 export function normPlan(p = {}) {
   const { id, ...rest } = p;
-  return { mode: "manual", chapters: [], state: {}, notes: {}, extra: {}, message: "", vocab: [], ...rest };
+  return { mode: "manual", chapters: [], state: {}, notes: {}, extra: {}, message: "", vocab: [], homework: [], ...rest };
 }
 export const lessonById = id => S.lessons.find(l => l.id === id);
 export const fileById = id => S.files.find(f => f.id === id);
