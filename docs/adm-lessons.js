@@ -194,7 +194,7 @@ export function editLesson(id, tab = "info") {
       <button data-c="removeFormat" title="Effacer la mise en forme">⌫ Format</button>
       <button data-c="import" title="Importer un Word ou PDF dans ce cours">📥 Word/PDF</button>
       <button data-c="html">${htmlMode ? "👁️ Visuel" : "&lt;/&gt; HTML"}</button></div>
-      ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true">${W.course}</div>`}
+      ${htmlMode ? `<textarea class="code" id="code">${esc(W.course)}</textarea>` : `<div class="rte course" id="rte" contenteditable="true" spellcheck="false">${W.course}</div>`}
       <input type="file" id="cf" accept=".docx,.pdf,.txt,.html,.htm" hidden><input type="file" id="imf" accept="image/*" hidden>
       <p class="mute">Astuce : sélectionnez une phrase espagnole puis <b>🔊 Audio</b> : elle est entourée de [[ ]] et l'élève peut l'écouter. Vous pouvez aussi glisser un Word ou un PDF directement dans la zone d'édition.</p>`;
     const rte = $("#rte"), code = $("#code");
