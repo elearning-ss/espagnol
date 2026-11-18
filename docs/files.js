@@ -197,3 +197,43 @@ export function cleanHtml(h) {
   d.querySelectorAll("p").forEach(p => { if (!p.textContent.trim() && !p.querySelector("img")) p.remove(); });
   return d.innerHTML.trim();
 }
+
+/* ---------- vocabulaire : lecture d'une liste collée ou d'un fichier ---------- */
+// Séparateurs reconnus, du plus fiable au moins fiable
+const SEPS = [/\t+/, /\s*;\s*/, /\s*\|\s*/, /\s+=\s+|\s*=\s*/, /\s+[–—]\s+/, /\s+-\s+/, /\s+:\s+/];
+const HEADER = /^(espagnol|español|espanol|spanish|mot|fran[cç]ais|french|traduction)\b/i;
+export function parseVocabText(text) {
+  const rows = [], bad = [];
+  String(text || "").split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.replace(/^\s*(?:[•●▪◦\-*]|\d+[.)])\s+/, "").trim(); // puces et numéros
+    if (!line) return;
+    let cells = null;
+    for (const s of SEPS) { const c = line.split(s).map(x => x.trim()).filter(Boolean); if (c.length >= 2) { cells = c; break; } }
+    if (!cells) { bad.push(raw.trim()); return; }
+    if (i === 0 && HEADER.test(cells[0]) && HEADER.test(cells[1] || "")) return; // ligne d'en-tête
+    const ph = (cells[2] || "").replace(/^\[|\]$/g, "");
+    rows.push([cells[0], cells[1], ph]);
+  });
+  return { rows, bad };
+}
+// Excel / CSV / Word / texte → lignes séparées par des tabulations
+export async function vocabFileToText(f) {
+  const ext = (f.name || "").split(".").pop().toLowerCase();
+  if (/^(xlsx|xls|ods)$/.test(ext)) {
+    await loadScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
+    const wb = window.XLSX.read(await f.arrayBuffer(), { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return window.XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false }).map(r => r.map(c => String(c ?? "").trim()).join("\t")).join("\n");
+  }
+  if (ext === "csv") { const t = await f.text(); const sep = (t.split("\n")[0].match(/;/g) || []).length > (t.split("\n")[0].match(/,/g) || []).length ? ";" : ","; return t.split(/\r?\n/).map(l => l.split(sep).map(c => c.replace(/^"|"$/g, "").trim()).join("\t")).join("\n"); }
+  if (ext === "docx") {
+    await loadScript("https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js");
+    const html = (await window.mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() })).value;
+    const d = document.createElement("div"); d.innerHTML = html;
+    const trs = [...d.querySelectorAll("tr")];
+    if (trs.length) return trs.map(tr => [...tr.children].map(td => td.textContent.trim()).join("\t")).join("\n");
+    return [...d.querySelectorAll("p,li")].map(p => p.textContent.trim()).filter(Boolean).join("\n");
+  }
+  if (ext === "txt" || ext === "md") return f.text();
+  throw new Error("Format non pris en charge : utilisez un fichier Excel (.xlsx), CSV, Word (.docx) ou texte.");
+}

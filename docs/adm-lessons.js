@@ -3,7 +3,7 @@ import { $, $$, esc, ui, linkify, cleanLesson, runQuiz, autoVocabEx, fmtDate, ty
 import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast, draggable, dropZone, fileDrop } from "./ui.js";
 import { S, api, fail, clone, saveOrder, lessonById, savePlan, addItemsToPlan, removeItemsFromPlan, planHas, sName, initials } from "./adm-state.js";
 import { SEED } from "./seed.js";
-import { fileToHtml, compressImage, cleanHtml } from "./files.js";
+import { fileToHtml, compressImage, cleanHtml, parseVocabText, vocabFileToText } from "./files.js";
 
 const sizeOf = o => new Blob([JSON.stringify(o)]).size;
 const sw = (attrs, checked, label) => `<label class="swl"><span class="sw"><input type="checkbox" ${attrs} ${checked ? "checked" : ""}><span></span></span>${label || ""}</label>`;
@@ -124,7 +124,7 @@ export function editLesson(id, tab = "info") {
   if (id && !orig) return S.C.go("lessons");
   const W = orig ? clone(orig) : { ...cleanLesson({ published: false }) };
   let isNew = !id; if (isNew) id = api().newId("lessons");
-  let dirty = isNew, htmlMode = false;
+  let dirty = isNew, htmlMode = false, vocabOpen = false;
   const mark = () => { dirty = true; const b = $("#save"); if (b) { b.disabled = false; b.textContent = "💾 Enregistrer"; } };
   S.C.guard(async () => !dirty || await confirmDlg("Des modifications ne sont pas enregistrées. Quitter quand même ?", { ok: "Quitter sans enregistrer", danger: true }));
   const back = () => S.C.go("lessons");
@@ -247,15 +247,41 @@ export function editLesson(id, tab = "info") {
       <input type="text" data-k="0" data-i="${i}" value="${esc(v[0])}" placeholder="Espagnol"><input type="text" data-k="1" data-i="${i}" value="${esc(v[1])}" placeholder="Français"><input type="text" data-k="2" data-i="${i}" value="${esc(v[2] || "")}" placeholder="Prononciation">
       <div class="row tight"><button class="ib" data-say="${esc(v[0])}" title="Écouter">🔊</button><button class="ib" data-rm="${i}" title="Supprimer">🗑️</button></div></div></div>`).join("") || '<p class="mute">Aucun mot pour l\'instant.</p>'}</div>
       <button class="btn" id="vadd">+ Ajouter un mot</button></div>
-      <details class="card"><summary>📋 Coller une liste</summary><p class="mute">Une ligne par mot : <code>espagnol ; français ; prononciation</code>. Un copier-coller d'un tableau Word ou Excel fonctionne aussi.</p><textarea id="vpaste" placeholder="la casa ; la maison ; KA-sa"></textarea><p><button class="btn ghost" id="vimp">Ajouter ces mots</button></p></details>
+      <details class="card" id="vpk" ${vocabOpen ? "open" : ""}><summary>📋 Ajouter une liste de mots (copier-coller, Excel, Word…)</summary>
+        <p class="mute">Collez votre liste ci-dessous, ou importez un fichier. L'ordre attendu : <b>espagnol</b>, <b>français</b>, et éventuellement la <b>prononciation</b>.<br>
+        Formats reconnus automatiquement : colonnes copiées depuis Excel ou un tableau Word, <code>la casa ; la maison</code>, <code>la casa = la maison</code>, <code>la casa – la maison</code>, <code>la casa : la maison</code>, avec ou sans puces.</p>
+        <div class="dropzone" id="vdz" style="padding:12px;margin-bottom:8px">📥 Glissez ici un fichier <b>Excel, CSV ou Word</b>, ou <u>cliquez pour le choisir</u><input type="file" id="vfi" accept=".xlsx,.xls,.ods,.csv,.docx,.txt" hidden></div>
+        <textarea id="vpaste" placeholder="la casa	la maison	KA-sa&#10;el perro = le chien&#10;• la playa – la plage" style="min-height:120px"></textarea>
+        <div id="vprev"></div>
+        <p class="row tight"><button class="btn" id="vimp" disabled>Ajouter ces mots</button><button class="btn ghost" id="vclr">Vider</button></p></details>
       <details class="card"><summary>🔎 Récupérer le vocabulaire depuis les tableaux du cours</summary><p class="mute">Après un import Word : chaque ligne des tableaux à 2 ou 3 colonnes devient un mot.</p><button class="btn ghost" id="vtab">Extraire depuis les tableaux</button></details>`;
     $$("#vl input").forEach(e => e.oninput = () => { W.vocab[+e.dataset.i][+e.dataset.k] = e.value; mark(); });
     $$("[data-rm]").forEach(b => b.onclick = () => { W.vocab.splice(+b.dataset.rm, 1); mark(); vocab(p); });
     $("#vadd").onclick = () => { W.vocab.push(["", "", ""]); mark(); vocab(p); const ins = $$("#vl input[data-k='0']"); ins[ins.length - 1]?.focus(); };
-    $("#vimp").onclick = () => {
-      const rows = $("#vpaste").value.split(/\n/).map(l => l.split(/\s*[;\t|]\s*/).map(s => s.trim())).filter(r => r[0] && r[1]);
-      if (!rows.length) return toast("Rien à importer : vérifiez le format.");
-      W.vocab.push(...rows.map(r => [r[0], r[1], r[2] || ""])); mark(); vocab(p); toast(`${rows.length} mot(s) ajouté(s)`);
+    const ta = $("#vpaste"), prev = $("#vprev"), vimp = $("#vimp");
+    const preview = () => {
+      const { rows, bad } = parseVocabText(ta.value);
+      const has = new Set(W.vocab.map(v => (v[0] || "").toLowerCase()));
+      const dup = rows.filter(r => has.has(r[0].toLowerCase())).length;
+      vimp.disabled = !rows.length; vimp.textContent = rows.length ? `Ajouter ${rows.length} mot${rows.length > 1 ? "s" : ""}` : "Ajouter ces mots";
+      prev.innerHTML = !ta.value.trim() ? "" : `<p class="mute" style="margin:8px 0 4px">${rows.length ? `✓ <b>${rows.length}</b> mot(s) reconnu(s)` : "Aucun mot reconnu pour l'instant."}${dup ? ` · ⚠️ ${dup} déjà dans la liste` : ""}${bad.length ? ` · <span style="color:var(--r)">✗ ${bad.length} ligne(s) non comprise(s)</span>` : ""}</p>
+        ${rows.length ? `<div class="scroll" style="max-height:220px;overflow:auto"><table class="tlist"><thead><tr><th>Espagnol</th><th>Français</th><th>Prononciation</th></tr></thead><tbody>${rows.slice(0, 200).map(r => `<tr${has.has(r[0].toLowerCase()) ? ' style="opacity:.55"' : ""}><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        ${bad.length ? `<p class="mute" style="font-size:13px">Lignes ignorées (pas de séparateur trouvé) : ${bad.slice(0, 5).map(b => `<code>${esc(b.slice(0, 40))}</code>`).join(", ")}${bad.length > 5 ? "…" : ""}</p>` : ""}
+        ${rows.length ? `<p><label class="swl"><input type="checkbox" id="vswap"> Mes colonnes sont dans l'autre sens (français d'abord)</label></p>` : ""}`;
+      const sw = $("#vswap"); if (sw) sw.onchange = () => { if (sw.checked) { ta.value = parseVocabText(ta.value).rows.map(r => [r[1], r[0], r[2]].join("\t")).join("\n"); preview(); } };
+    };
+    ta.oninput = preview;
+    $("#vclr").onclick = () => { ta.value = ""; preview(); };
+    const vdz = $("#vdz"), vfi = $("#vfi");
+    const loadFile = async f => { try { toast("Lecture du fichier…", 1200); ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + await vocabFileToText(f); preview(); } catch (e) { fail(e); } };
+    vdz.onclick = () => vfi.click();
+    vfi.onchange = () => { const f = vfi.files[0]; vfi.value = ""; if (f) loadFile(f); };
+    fileDrop(vdz, f => loadFile(f[0]));
+    $("#vpk").ontoggle = e => { vocabOpen = e.target.open; };
+    vimp.onclick = () => {
+      const { rows } = parseVocabText(ta.value);
+      if (!rows.length) return toast("Rien à ajouter : vérifiez le format.");
+      W.vocab.push(...rows); mark(); vocabOpen = false; vocab(p); toast(`${rows.length} mot(s) ajouté(s) ✓ Pensez à enregistrer.`, 3000);
     };
     $("#vtab").onclick = async () => {
       const d = document.createElement("div"); d.innerHTML = W.course; const rows = [];
