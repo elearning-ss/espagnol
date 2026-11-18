@@ -6,6 +6,7 @@ import { startAdmin } from "./admin.js";
 import { startStudent } from "./student.js";
 import { SEED, DEFAULT_TEMPLATE } from "./seed.js";
 import { uploadFile } from "./files.js";
+import { showPrivacy, needsConsent, consentScreen } from "./privacy.js";
 
 $("#back").onclick = () => ui.backFn && ui.backFn();
 // Application installable (PWA)
@@ -40,7 +41,8 @@ async function loginScreen(msg) {
     <label class="f">Mot de passe</label><input type="password" id="lp" autocomplete="current-password">
     <p><button class="btn full" id="lb">Se connecter</button></p>
     <p class="center"><a href="#" id="lf" class="mute">Mot de passe oublié ?</a></p>
-    <p class="mute center" style="font-size:13px">Pas encore de compte ? Votre professeur vous envoie une invitation par e-mail.</p></div></div>`;
+    <p class="mute center" style="font-size:13px">Pas encore de compte ? Votre professeur vous envoie une invitation par e-mail.</p></div>
+    <p class="center"><a href="#" id="lpriv" class="mute" style="font-size:13px">🔒 Confidentialité</a></p></div>`;
   const go = async () => {
     const b = $("#lb"); b.disabled = true;
     try { await api.login($("#le").value.trim(), $("#lp").value); }
@@ -53,6 +55,7 @@ async function loginScreen(msg) {
     try { await api.resetPassword(em); ui.toast("Si ce compte existe, un e-mail vient d'être envoyé ✓", 4000); } catch (er) { ui.toast(authError(er)); }
   };
   $$("[data-demo]").forEach(b => b.onclick = () => api.login(b.dataset.demo, "demo"));
+  $("#lpriv").onclick = e => { e.preventDefault(); showPrivacy(api); };
 }
 
 /* ---------- entrée après connexion ---------- */
@@ -69,6 +72,7 @@ async function enter(u) {
     if (!profile) { await api.logout(); return loginScreen("Ce compte n'est pas reconnu. Demandez une invitation à votre professeur."); }
     if (profile.role === "admin") return startAdmin({ api, user: u, profile });
     if (profile.disabled) { await api.logout(); return loginScreen("Votre accès est suspendu. Contactez votre professeur."); }
+    if (await needsConsent(api, profile) && !(await consentScreen(api, u, profile))) { await api.logout(); return loginScreen("Vous devez accepter la politique de confidentialité pour utiliser l'application. Pour toute question, contactez votre professeure."); }
     const [ls, plan, progress, files, folders] = await Promise.all([api.list("lessons"), api.get("plans/" + u.uid), api.get("progress/" + u.uid), api.listContains("files", "students", u.uid), api.listContains("folders", "students", u.uid)]);
     startStudent({ api, user: u, profile, lessons: ls.map(l => ({ id: l.id, ...cleanLesson(l) })).filter(l => l.published), files, folders, plan: plan || {}, progress: progress || {} });
   } catch (e) {
@@ -96,7 +100,7 @@ async function demoData() {
   await mk("Vocabulaire du restaurant.txt", "text/plain", "la carta : le menu\nla cuenta : l'addition\nel camarero : le serveur\n¿Me trae la cuenta, por favor?", null);
   // Élèves
   const ch = (t, ids) => ({ id: Math.random().toString(36).slice(2, 8), title: t, items: ids.map(x => ({ k: x[0], id: x.slice(2) })) });
-  await api.set("users/u_lucia", { email: "lucia@demo", name: "Lucía Martin", role: "student", createdAt: now - 20 * day });
+  await api.set("users/u_lucia", { email: "lucia@demo", name: "Lucía Martin", role: "student", createdAt: now - 20 * day, consentAt: now - 20 * day, consentV: 1 });
   await api.set("plans/u_lucia", { mode: "manual", message: "¡Hola Lucía! Très bon début. Pour jeudi : leçon 3, exercices.",
     chapters: [ch("Chapitre 1 · Premiers pas", ["l:alfabeto", "l:presentarse", "l:presente", "f:" + f1]), ch("Chapitre 2 · Moi et les autres", ["l:numeros", "l:familia", "l:gustar"]), ch("📎 Documents", ["d:d_gram"])],
     state: { "l:alfabeto": "open", "l:presentarse": "open", "l:presente": "open", "l:gustar": "hidden" },

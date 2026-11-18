@@ -323,3 +323,33 @@ export function hwStatus(hw, { lessons = [], files = [] } = {}, progress = {}) {
   const when = days === null ? "" : days < 0 ? `en retard de ${-days} jour${days < -1 ? "s" : ""}` : days === 0 ? "pour aujourd'hui" : days === 1 ? "pour demain" : `pour ${fmtDue(hw.due)}`;
   return { items, n, nd, done, late, days, when };
 }
+
+/* ---------- HTML sûr (corrections de rédaction) : seules quelques balises sont gardées ---------- */
+const SAFE = { DEL: 1, INS: 1, MARK: ["title"], BR: 1, B: 1, I: 1, U: 1, P: 1, DIV: 1, SPAN: ["class"] };
+export function safeHtml(html) {
+  const doc = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html");
+  const walk = n => [...n.childNodes].map(c => {
+    if (c.nodeType === 3) return esc(c.nodeValue);
+    if (c.nodeType !== 1) return "";
+    const t = c.tagName, ok = SAFE[t], inner = walk(c);
+    if (!ok) return inner;
+    const attrs = Array.isArray(ok) ? ok.filter(a => c.getAttribute(a)).map(a => ` ${a}="${esc(a === "class" ? c.getAttribute(a).replace(/[^\w -]/g, "") : c.getAttribute(a))}"`).join("") : "";
+    return t === "BR" ? "<br>" : `<${t.toLowerCase()}${attrs}>${inner}</${t.toLowerCase()}>`;
+  }).join("");
+  return walk(doc.body.firstChild);
+}
+export const textToHtml = t => esc(t || "").replace(/\n/g, "<br>");
+
+/* ---------- texte mis en forme simple : « ## titre », « - liste », **gras**, liens ---------- */
+export function mdLite(src) {
+  const inl = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/([\w.+-]+@[\w-]+\.[\w.]+)/g, '<a href="mailto:$1">$1</a>');
+  return String(src || "").split(/\n{2,}/).map(b => {
+    b = b.trim(); if (!b) return "";
+    if (b.startsWith("## ")) return `<h3>${inl(b.slice(3))}</h3>`;
+    if (b.startsWith("# ")) return `<h2>${inl(b.slice(2))}</h2>`;
+    const lines = b.split("\n");
+    if (lines.every(l => /^[-•] /.test(l))) return `<ul>${lines.map(l => `<li>${inl(l.slice(2))}</li>`).join("")}</ul>`;
+    return `<p>${lines.map(inl).join("<br>")}</p>`;
+  }).join("");
+}
+export const fmtTime = t => t ? new Date(t).toLocaleString("fr-BE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";

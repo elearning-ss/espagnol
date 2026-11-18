@@ -1,6 +1,6 @@
 rules_version = '2';
 // Règles de sécurité de « Paso a paso ».
-// ⚠️ Remplacez votre.email@exemple.com par VOTRE e-mail de professeur.
+// ⚠️ Remplacez smeersjf@gmail.com par VOTRE e-mail de professeur.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -11,7 +11,7 @@ service cloud.firestore {
       return signedIn() && exists(userDoc()) && get(userDoc()).data.role == 'admin';
     }
     function isTeacherEmail() {
-      return signedIn() && request.auth.token.email == 'votre.email@exemple.com';
+      return signedIn() && request.auth.token.email == 'smeersjf@gmail.com';
     }
     function activeStudent() {
       return signedIn() && exists(userDoc()) && get(userDoc()).data.get('disabled', false) != true;
@@ -63,12 +63,43 @@ service cloud.firestore {
       }
     }
 
+    // Messagerie : un fil par élève. L'élève n'écrit que ses propres messages, ne modifie ni ne supprime rien.
+    match /threads/{uid} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow create, update: if (activeStudent() && me() == uid) || isAdmin();
+      allow delete: if isAdmin();
+      match /msgs/{id} {
+        allow read: if (signedIn() && me() == uid) || isAdmin();
+        allow create: if isAdmin()
+                      || (activeStudent() && me() == uid && request.resource.data.f == 's'
+                          && request.resource.data.t is string && request.resource.data.t.size() <= 4000);
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    // Rédactions : l'élève écrit et envoie ; seule la professeure corrige.
+    match /writings/{uid}/items/{id} {
+      allow read: if (signedIn() && me() == uid) || isAdmin();
+      allow create: if isAdmin()
+                    || (activeStudent() && me() == uid
+                        && request.resource.data.status in ['draft', 'sent']
+                        && !request.resource.data.keys().hasAny(['corr', 'comment', 'grade', 'doneAt']));
+      allow update: if isAdmin()
+                    || (activeStudent() && me() == uid && (
+                         (resource.data.status in ['todo', 'draft']
+                          && request.resource.data.status in ['draft', 'sent']
+                          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['corr', 'comment', 'grade', 'doneAt', 'prompt']))
+                      || (resource.data.status == 'done'
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seenS']))));
+      allow delete: if isAdmin() || (signedIn() && me() == uid && resource.data.status == 'draft');
+    }
+
     // Parcours types et réglages : réservés au prof (réglages lisibles par tous).
     match /templates/{id} {
       allow read, write: if isAdmin();
     }
     match /settings/{id} {
-      allow read: if signedIn();
+      allow read: if signedIn() || id == 'privacy';   // la politique de confidentialité est lisible avant connexion
       allow write: if isAdmin();
     }
   }

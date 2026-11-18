@@ -6,10 +6,12 @@ import { S, reload, fail, api, normPlan, sName, initials, pickStudents, syncAcce
 import { lessonsView, editLesson } from "./adm-lessons.js";
 import { libraryView } from "./adm-library.js";
 import { studentsView, studentDetail, templatesView, templateEdit, dashboardView } from "./adm-students.js";
+import { messagesView, writingsView, correctView, reloadSocial, socialBadges, privacyCard } from "./adm-social.js";
+import { stopPoll } from "./social.js";
 
-const NAV = [["home", "🏠", "Accueil"], ["students", "👥", "Élèves"], ["templates", "🧭", "Parcours types"], ["lessons", "🎓", "Leçons"], ["library", "🗂️", "Bibliothèque"], ["account", "⚙️", "Compte"]];
-const VIEWS = { home: dashboardView, students: studentsView, student: studentDetail, templates: templatesView, template: templateEdit, lessons: lessonsView, lesson: editLesson, library: libraryView, account: accountView };
-const SECTION = { student: "students", template: "templates", lesson: "lessons" };
+const NAV = [["home", "🏠", "Accueil"], ["students", "👥", "Élèves"], ["templates", "🧭", "Parcours types"], ["messages", "💬", "Messages"], ["writings", "✍️", "Rédactions"], ["lessons", "🎓", "Leçons"], ["library", "🗂️", "Bibliothèque"], ["account", "⚙️", "Compte"]];
+const VIEWS = { home: dashboardView, students: studentsView, student: studentDetail, templates: templatesView, template: templateEdit, lessons: lessonsView, lesson: editLesson, library: libraryView, account: accountView, messages: messagesView, writings: writingsView, correct: correctView };
+const SECTION = { student: "students", template: "templates", lesson: "lessons", correct: "writings" };
 let guardFn = null, current = "home";
 
 export async function startAdmin(ctx, view = "home", ...args) {
@@ -20,18 +22,22 @@ export async function startAdmin(ctx, view = "home", ...args) {
   $$("#nav [data-nav]").forEach(b => b.onclick = () => go(b.dataset.nav));
   $("#hdr-right").innerHTML = `<span class="pill">👩‍🏫 ${esc(ctx.profile.name || "Professeur")}</span>`;
   ui.m.innerHTML = `<p class="mute center">Chargement…</p>`;
-  try { await reload(); } catch (e) { fail(e); }
+  try { await reload(); await reloadSocial(); } catch (e) { fail(e); }
   guardFn = null;
   go(view, ...args);
 }
 async function go(v, ...args) {
   if (guardFn && !(await guardFn())) return;
-  guardFn = null; document.onkeydown = null;
+  guardFn = null; document.onkeydown = null; stopPoll();
   document.querySelectorAll(".ctx,.ov").forEach(e => e.remove());
   current = v;
   $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === (SECTION[v] || v)));
   try { VIEWS[v](...args); } catch (e) { fail(e); }
+  socialBadges();
+  // nouveaux messages / rédactions : vérification discrète toutes les 2 minutes
+  if (!socialTimer) socialTimer = setInterval(async () => { if (document.hidden) return; try { await reloadSocial(); socialBadges(); } catch (e) {} }, 120000);
 }
+let socialTimer = null;
 window.addEventListener("beforeunload", e => { if (guardFn) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- compte ---------- */
@@ -43,8 +49,9 @@ function accountView() {
   <div class="card" id="admins"></div>
   <div class="card" id="instcard"></div>
   <div class="card" id="pwbox"></div>
+  <div class="card" id="privc"></div>
   <div class="card" id="bkp"><b>💾 Sauvegarde complète</b>
-    <p class="mute">Un fichier qui contient <b>tout</b> : leçons, parcours types, élèves, parcours de chaque élève (chapitres, états, documents attribués), vos notes et exercices perso, leurs résultats, et l'arborescence de la bibliothèque. À faire régulièrement, et à garder en lieu sûr (il contient les noms et e-mails de vos élèves).</p>
+    <p class="mute">Un fichier qui contient <b>tout</b> : leçons, parcours types, élèves, parcours de chaque élève (chapitres, états, documents attribués, devoirs), vos notes et exercices perso, leurs résultats, les messages, les rédactions et l'arborescence de la bibliothèque. À faire régulièrement, et à garder en lieu sûr (il contient les noms et e-mails de vos élèves).</p>
     <label class="swl" style="margin:4px 0 10px"><span class="sw"><input type="checkbox" id="bk_files"><span></span></span>Inclure aussi les fichiers de la bibliothèque (PDF, Word…) — fichier plus lourd</label>
     <div class="row tight"><button class="btn" id="exp">⬇️ Télécharger la sauvegarde complète</button><button class="btn ghost" id="impb">⬆️ Restaurer une sauvegarde</button><input type="file" id="impf" accept=".json" hidden></div>
     <div id="bk_msg" class="mute" style="margin-top:8px"></div></div>
@@ -56,6 +63,7 @@ function accountView() {
   $("#impf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) restore(f).catch(fail); };
   $("#out").onclick = () => C.api.logout();
   drawAdmins();
+  privacyCard($("#privc")).catch(fail);
   const dr = $("#dreset"); if (dr) dr.onclick = async () => { if (await confirmDlg("Effacer toutes les données de démo ?", { ok: "Effacer", danger: true })) { await C.api.reset(); location.reload(); } };
 }
 
@@ -133,8 +141,16 @@ async function backup(withFiles) {
       app: "paso-a-paso", v: 3, date: new Date().toISOString(), withFiles: !!withFiles,
       order: S.order, lessons: S.lessons, templates: S.templates,
       users, plans: Object.entries(S.plans).map(([id, p]) => ({ id, ...p })), progress: Object.entries(S.progress).map(([id, p]) => ({ id, ...p })),
-      folders: S.folders, files: S.files, fileData: {},
+      folders: S.folders, files: S.files, fileData: {}, threads: [], writings: [],
     };
+    msg("Messages et rédactions…");
+    try {
+      for (const s of S.students) {
+        const th = await a.get("threads/" + s.id);
+        if (th) data.threads.push({ id: s.id, ...th, msgs: await a.list(`threads/${s.id}/msgs`) });
+        const ws = await a.list(`writings/${s.id}/items`); if (ws.length) data.writings.push({ id: s.id, items: ws });
+      }
+    } catch (e) { /* règles pas encore à jour : sauvegarde sans messages */ }
     if (withFiles) {
       let i = 0;
       for (const f of S.files) {
@@ -188,8 +204,12 @@ async function restore(file) {
     for (const u of users) await a.set("users/" + u.id, strip(u), false);
     for (const p of d.plans || []) if (p.id !== me) await a.replace("plans/" + p.id, strip(p));
     for (const p of d.progress || []) if (p.id !== me) await a.replace("progress/" + p.id, strip(p));
+    try {
+      for (const t of d.threads || []) { const { id, msgs = [], ...th } = t; await a.set("threads/" + id, th, false); for (const m of msgs) await a.set(`threads/${id}/msgs/${m.id}`, strip(m), false); }
+      for (const w of d.writings || []) for (const it of w.items || []) await a.set(`writings/${w.id}/items/${it.id}`, strip(it), false);
+    } catch (e) { toast("Messages et rédactions non restaurés : règles Firebase à mettre à jour.", 5000); }
   }
-  await reload(); await syncAccess();
+  await reload(); await reloadSocial(); await syncAccess();
   msg("✓ Sauvegarde restaurée.");
   toast("Sauvegarde restaurée ✓", 3000); go("home");
 }

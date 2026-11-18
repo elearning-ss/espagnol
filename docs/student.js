@@ -1,8 +1,10 @@
 // Espace élève : Leçons · Exercices · Mon compte
 import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents, hwStatus, fmtDue } from "./core.js";
 import { previewFile, fileKind, kindIcon, fmtSize, mountAudio, fileBlob } from "./files.js";
-import { passwordBox, installCard } from "./ui.js";
+import { passwordBox, installCard, confirmDlg } from "./ui.js";
 import { authError } from "./fb.js";
+import { chatBox, sendMsg, stopPoll, unreadFor, rulesHint, loadWritings, W_STATUS, wordCount, correctionHtml, bindMarks } from "./social.js";
+import { showPrivacy } from "./privacy.js";
 
 // préférences d'affichage du vocabulaire (mémorisées sur l'appareil)
 const VP = { get: k => { try { return localStorage.getItem("paso_voc_" + k) === "1"; } catch (e) { return false; } }, set: (k, v) => { try { localStorage.setItem("paso_voc_" + k, v ? "1" : "0"); } catch (e) {} } };
@@ -18,17 +20,33 @@ export function startStudent(ctx) {
   setAudioResolver(id => { const f = C.files.find(x => x.id === id); return f ? fileBlob(C.api, f) : Promise.reject(new Error("audio")); });
   document.body.classList.remove("admin");
   $("#nav").className = "bottom";
-  $("#nav").innerHTML = `<button data-nav="lessons"><b>📚</b>Leçons</button><button data-nav="exercises"><b>✏️</b>Exercices</button><button data-nav="account"><b>👤</b>Mon compte</button>`;
+  $("#nav").innerHTML = `<button data-nav="lessons"><b>📚</b>Leçons</button><button data-nav="exercises"><b>✏️</b>Exercices</button><button data-nav="messages"><b>💬</b>Messages</button><button data-nav="account"><b>👤</b>Mon compte</button>`;
   $$("#nav [data-nav]").forEach(b => b.onclick = () => go(b.dataset.nav));
   $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button>`;
   $("#spd").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; };
   if (C.preview) $("#exitprev").onclick = () => C.onExit();
+  C.thread = null; C.writings = [];
   go("lessons");
+  refreshSocial();
 }
+// fil de messages et rédactions : chargés en arrière-plan (ils ne bloquent pas l'ouverture)
+async function refreshSocial() {
+  if (C.preview) { try { C.thread = await C.api.get("threads/" + C.user.uid); C.writings = await loadWritings(C.api, C.user.uid); } catch (e) {} return badges(); }
+  try { C.thread = await C.api.get("threads/" + C.user.uid); } catch (e) { C.thread = null; }
+  try { C.writings = await loadWritings(C.api, C.user.uid); } catch (e) { C.writings = []; }
+  badges();
+}
+const wNew = () => C.writings.filter(w => w.status === "todo" || (w.status === "done" && !w.seenS)).length;
 const chapters = () => buildPath(C.plan, { lessons: C.lessons, files: C.files, folders: C.folders }, C.progress).map(c => ({ ...c, items: c.items.filter(i => i.visible) })).filter(c => c.items.length);
 // leçons visibles, à plat, au format attendu par le reste du code : { l, unlocked, score, passed }
 const path = () => pathLessons(chapters()).map(i => ({ l: i.obj, unlocked: i.unlocked, score: i.score, passed: i.passed }));
-function go(v) { $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === v)); ({ lessons, exercises, account })[v](); hwBadge(); }
+function go(v) { stopPoll(); $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === v)); ({ lessons, exercises, messages, account })[v](); badges(); }
+function badges() {
+  hwBadge();
+  const set = (k, n) => { const b = $(`#nav [data-nav="${k}"]`); if (!b) return; b.querySelector(".nb")?.remove(); if (n) b.insertAdjacentHTML("beforeend", `<span class="nb">${n}</span>`); };
+  set("messages", unreadFor(C.thread, "s") ? "•" : 0);
+  set("exercises", wNew());
+}
 // devoirs : ceux à faire d'abord (les plus urgents en tête), puis les terminés récents
 const homework = () => (C.plan.homework || []).map(h => ({ h, st: hwStatus(h, { lessons: C.lessons, files: C.files }, C.progress) }))
   .sort((a, b) => (a.st.done - b.st.done) || String(a.h.due || "9").localeCompare(String(b.h.due || "9")));
@@ -85,6 +103,57 @@ function lessons() {
   $$("[data-file]", ui.m).forEach(b => b.onclick = () => openFile(b.dataset.file));
   $$("[data-dir]", ui.m).forEach(b => b.onclick = () => folder(b.dataset.dir, b.dataset.dir));
 }
+/* ======================= MESSAGES ======================= */
+function messages() {
+  ui.setTitle("💬 Messages");
+  ui.m.innerHTML = prevBanner() + `<p class="mute" style="margin:0 4px 8px">Votre fil avec votre professeure. Elle le lit à sa prochaine connexion (pas de notification instantanée).</p><div id="chatb"></div>`;
+  chatBox($("#chatb"), { api: C.api, uid: C.user.uid, me: "s", readOnly: C.preview, onRead: () => { C.thread = { ...(C.thread || {}), readS: Date.now() }; badges(); } });
+}
+
+/* ======================= RÉDACTIONS ======================= */
+function writingsView() {
+  ui.setTitle("✍️ Mes rédactions", () => exercises());
+  const W = C.writings;
+  ui.m.innerHTML = prevBanner() + `<button class="btn full" id="wnew">+ Écrire une nouvelle rédaction</button><p></p>
+    ${W.map(w => `<div class="card step" data-w="${w.id}"><div class="n">${w.status === "done" ? "✅" : w.status === "sent" ? "⏳" : w.status === "todo" ? "📝" : "✏️"}</div><div class="t"><b>${esc(w.title || "Sans titre")}</b>
+      <span class="mute">${W_STATUS[w.status] || ""}${w.status === "done" && !w.seenS ? ` · <span class="badge">nouveau</span>` : ""}${w.grade && w.status === "done" ? ` · ${esc(w.grade)}` : ""}</span></div>›</div>`).join("") || `<div class="card center mute">Écrivez en espagnol : votre professeure corrige et vous renvoie votre texte annoté.</div>`}`;
+  $("#wnew").onclick = () => writingEdit(null);
+  $$("[data-w]", ui.m).forEach(b => b.onclick = () => { const w = W.find(x => x.id === b.dataset.w); w.status === "done" ? writingRead(w) : w.status === "sent" ? writingRead(w) : writingEdit(w); });
+}
+function writingEdit(w0) {
+  const w = w0 ? { ...w0 } : { id: C.api.newId(`writings/${C.user.uid}/items`), title: "", text: "", status: "draft", at: Date.now() };
+  ui.setTitle("✍️ Rédaction", () => writingsView());
+  ui.m.innerHTML = prevBanner() + `${w.prompt ? `<div class="prof">📝 <b>Sujet donné par votre professeure</b>\n${esc(w.prompt)}</div>` : ""}
+    <div class="card"><label class="f">Titre</label><input type="text" id="w_t" value="${esc(w.title)}" placeholder="ex. Mi fin de semana" ${w0?.prompt ? "readonly" : ""}>
+    <label class="f">Votre texte en espagnol</label><textarea id="w_x" rows="12" spellcheck="false" placeholder="Escribe aquí…">${esc(w.text || "")}</textarea>
+    ${accentBar()}<p class="mute" id="w_n"></p>
+    <div class="row"><button class="btn ghost" id="w_save">💾 Enregistrer le brouillon</button><button class="btn" id="w_send">📤 Envoyer à ma professeure</button></div>
+    ${w0 && w0.status === "draft" ? `<p class="center"><a href="#" class="mute" id="w_del">Supprimer ce brouillon</a></p>` : ""}</div>`;
+  const ta = $("#w_x"), cnt = () => $("#w_n").textContent = `${wordCount(ta.value)} mot(s)`; cnt(); ta.oninput = cnt;
+  let last = ta; [$("#w_t"), ta].forEach(i => i.onfocus = () => last = i); bindAccents(ui.m, () => last);
+  const put = async status => {
+    if (C.preview) return ui.toast("Aperçu : rien n'est enregistré."), false;
+    const d = { title: $("#w_t").value.trim() || "Sans titre", text: ta.value, status, at: w.at || Date.now(), ...(w.prompt ? { prompt: w.prompt } : {}), ...(status === "sent" ? { sentAt: Date.now() } : {}) };
+    try { await C.api.set(`writings/${C.user.uid}/items/${w.id}`, d, false); Object.assign(w, d); const i = C.writings.findIndex(x => x.id === w.id); i < 0 ? C.writings.unshift(w) : C.writings[i] = w; badges(); return true; }
+    catch (e) { ui.toast(rulesHint(e), 6000); return false; }
+  };
+  $("#w_save").onclick = async () => { if (await put("draft")) ui.toast("Brouillon enregistré ✓"); };
+  $("#w_send").onclick = async () => {
+    if (wordCount(ta.value) < 3) return ui.toast("Écrivez d'abord votre texte.");
+    if (await put("sent")) { ui.toast("Envoyée ✓ Votre professeure va la corriger."); writingsView(); }
+  };
+  const del = $("#w_del"); if (del) del.onclick = async e => { e.preventDefault(); if (C.preview) return; try { await C.api.del(`writings/${C.user.uid}/items/${w.id}`); C.writings = C.writings.filter(x => x.id !== w.id); writingsView(); } catch (er) { ui.toast(rulesHint(er)); } };
+}
+async function writingRead(w) {
+  ui.setTitle("✍️ " + esc(w.title || "Rédaction"), () => writingsView());
+  const done = w.status === "done";
+  ui.m.innerHTML = prevBanner() + (done ? `<div class="card">${correctionHtml(w)}</div><details class="card"><summary>Mon texte d'origine</summary><div style="white-space:pre-wrap;margin-top:8px">${esc(w.text)}</div></details>`
+    : `<div class="note">⏳ Envoyée le ${new Date(w.sentAt || w.at).toLocaleDateString("fr-BE")}. Votre professeure la corrigera bientôt.</div><div class="card" style="white-space:pre-wrap">${esc(w.text)}</div>`)
+    + `<button class="btn ghost full" id="wb">Retour</button>`;
+  bindMarks(ui.m); $("#wb").onclick = writingsView;
+  if (done && !w.seenS && !C.preview) { w.seenS = Date.now(); try { await C.api.set(`writings/${C.user.uid}/items/${w.id}`, { seenS: w.seenS }); } catch (e) {} badges(); }
+}
+
 /* ---------- devoirs ---------- */
 let showDoneHw = false;
 function hwBlock() {
@@ -175,6 +244,7 @@ function exercises() {
   let h = prevBanner() + `<div class="card step" id="rev"><div class="n">🃏</div><div class="t"><b>Réviser le vocabulaire</b><span class="mute">${all.length ? `${dueN} carte${dueN > 1 ? "s" : ""} à revoir aujourd'hui sur ${all.length}` : "Ouvrez une leçon pour ajouter ses mots"}</span></div>›</div>
   ${weakN ? `<div class="card step" id="revw"><div class="n">🎯</div><div class="t"><b>Mes mots à revoir</b><span class="mute">${weakN} mot${weakN > 1 ? "s" : ""} ou phrase${weakN > 1 ? "s" : ""} ratés en exercice · ils disparaissent quand vous les maîtrisez</span></div>›</div>` : ""}
   <div class="card step" id="carn"><div class="n">📒</div><div class="t"><b>Mon carnet de vocabulaire</b><span class="mute">${carnetN ? `${carnetN} mot${carnetN > 1 ? "s" : ""} · les mots de vos cours et de vos découvertes` : "Notez les mots rencontrés en cours, dans un film…"}</span></div>›</div>
+  <div class="card step" id="wri"><div class="n">✍️</div><div class="t"><b>Mes rédactions</b><span class="mute">${(() => { const n = wNew(), s = C.writings.filter(w => w.status === "sent").length; return n ? `<span class="badge">${n}</span> nouveauté(s) : sujet ou correction` : s ? `${s} en attente de correction` : "Écrivez en espagnol, votre professeure corrige"; })()}</span></div>›</div>
   <p class="mute" style="margin:16px 4px 8px">Exercices par leçon</p>`;
   P.forEach(p => {
     const l = p.l, extra = (C.plan.extra?.[l.id] || []).length, n = l.ex.length + extra + (l.vocab.length >= 4 ? 3 : 0);
@@ -188,6 +258,7 @@ function exercises() {
   $("#rev").onclick = () => review("all");
   const rw = $("#revw"); if (rw) rw.onclick = () => review("weak");
   $("#carn").onclick = () => carnetView();
+  $("#wri").onclick = () => writingsView();
   $$("[data-q]", ui.m).forEach(b => b.onclick = () => exQuiz(b.dataset.q));
 }
 
@@ -320,10 +391,27 @@ function account() {
   <div class="card" id="instcard"></div>
   <div class="card" id="pwbox"></div>
   <div class="card"><b>Voix</b><p class="mute">Vitesse de lecture de l'espagnol.</p><button class="btn ghost" id="spd2">${voiceState.slow ? "🐢 Lente (toucher pour normale)" : "🔊 Normale (toucher pour lente)"}</button></div>
+  <div class="card"><b>🔒 Mes données personnelles</b><p class="mute">Vos données servent uniquement au suivi de vos cours.${C.profile.consentAt ? ` Politique acceptée le ${new Date(C.profile.consentAt).toLocaleDateString("fr-BE")}.` : ""}</p>
+    <div class="row tight"><button class="btn ghost small" id="pv1">📄 Politique de confidentialité</button><button class="btn ghost small" id="pv2">⬇️ Télécharger mes données</button><button class="btn ghost small" id="pv3">🗑️ Demander la suppression de mon compte</button></div></div>
   ${C.preview ? "" : `<button class="btn ghost full" id="out">Se déconnecter</button>`}`;
   $("#svn").onclick = async () => { if (C.preview) return; C.profile.name = $("#nm").value.trim(); try { await C.api.set("users/" + C.user.uid, { name: C.profile.name }); ui.toast("Prénom enregistré"); } catch (e) { ui.toast(authError(e)); } };
   installCard($("#instcard"));
   passwordBox($("#pwbox"), async pw => { if (C.preview) { ui.toast("Aperçu : rien n'est modifié."); return false; } try { await C.api.changePassword(pw); ui.toast("Mot de passe changé ✓"); return true; } catch (e) { ui.toast(authError(e), 5000); return false; } });
   $("#spd2").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; account(); };
   const o = $("#out"); if (o) o.onclick = () => C.api.logout();
+  $("#pv1").onclick = () => showPrivacy(C.api);
+  $("#pv2").onclick = async () => {
+    let msgs = []; try { msgs = (await C.api.list(`threads/${C.user.uid}/msgs`)).sort((a, b) => a.at - b.at); } catch (e) {}
+    const data = { exporte_le: new Date().toISOString(), profil: { email: C.profile.email, prenom: C.profile.name || "", accord_confidentialite: C.profile.consentAt ? new Date(C.profile.consentAt).toISOString() : null },
+      progression: C.progress, parcours: { devoirs: C.plan.homework || [], vocabulaire_du_professeur: C.plan.vocab || [], message: C.plan.message || "" },
+      messages: msgs.map(m => ({ de: m.f === "s" ? "moi" : "professeur", date: new Date(m.at).toISOString(), texte: m.t })), redactions: C.writings };
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    a.download = `mes-donnees-paso-a-paso-${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(a); a.click(); a.remove();
+  };
+  $("#pv3").onclick = async () => {
+    if (C.preview) return ui.toast("Aperçu : rien n'est envoyé.");
+    if (!await confirmDlg("Votre professeure recevra une demande de suppression de votre compte et de toutes vos données (progression, messages, rédactions). Elle vous confirmera la suppression.", { ok: "Envoyer la demande", danger: true, title: "Supprimer mon compte" })) return;
+    try { await sendMsg(C.api, C.user.uid, "s", "🗑️ Demande de suppression : je souhaite que mon compte et toutes mes données soient supprimés (RGPD)."); ui.toast("Demande envoyée ✓", 3500); }
+    catch (e) { ui.toast("Envoi impossible. Écrivez à ste_ss@hotmail.com.", 6000); }
+  };
 }

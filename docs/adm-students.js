@@ -5,6 +5,8 @@ import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, 
 import { pathBuilder } from "./adm-path.js";
 import { DEMO } from "./fb.js";
 import { startStudent } from "./student.js";
+import { purgeSocial, assignTopic, unreadCount, toCorrect } from "./adm-social.js";
+import { unreadFor } from "./social.js";
 import { fileKind, kindIcon, parseVocabText } from "./files.js";
 
 /* ---------- statistiques ---------- */
@@ -86,7 +88,7 @@ export function studentDetail(uid, tab = "path") {
     const st = stats({ ...s, id: uid });
     ui.setTitle(`🎓 ${esc(sName(s))}`, () => S.C.go("students"));
     ui.m.innerHTML = `<div class="card shead"><div class="row tight" style="align-items:center">${av(s, "xl")}<div style="flex:1;min-width:200px"><h2 style="margin:0">${esc(sName(s))}</h2><div class="mute">${esc(s.email)}${s.disabled ? ' · <span class="tag D">désactivé</span>' : ""}</div></div>
-        <button class="btn ghost small" id="s_prev">👁️ Voir comme l'élève</button><button class="ib" id="s_more" title="Plus d'actions">⋯</button></div>
+        <button class="btn ghost small" id="s_msg">💬 Écrire${unreadFor(S.threads?.[uid], "t") ? ` <span class="nbi">•</span>` : ""}</button><button class="btn ghost small" id="s_prev">👁️ Voir comme l'élève</button><button class="ib" id="s_more" title="Plus d'actions">⋯</button></div>
       <div class="kpi" style="margin:12px 0 0"><div><b>${st.passed}/${st.total}</b><span class="mute">leçons réussies</span></div><div><b>${st.open}</b><span class="mute">leçons ouvertes</span></div><div><b>${st.docs}</b><span class="mute">documents</span></div><div><b>${st.att}</b><span class="mute">séries d'exercices</span></div><div><b style="font-size:15px">${fmtDate(st.last)}</b><span class="mute">dernière activité</span></div></div></div>
     <div class="tabs"><button data-t="path" class="${tab === "path" ? "on" : ""}">🧭 Parcours</button><button data-t="track" class="${tab === "track" ? "on" : ""}">📊 Suivi</button><button data-t="hw" class="${tab === "hw" ? "on" : ""}">📌 Devoirs${pendingHw() ? ` <span class="nbi">${pendingHw()}</span>` : ""}</button><button data-t="prep" class="${tab === "prep" ? "on" : ""}">🗒️ Séance</button><button data-t="voc" class="${tab === "voc" ? "on" : ""}">📒 Vocabulaire</button><button data-t="set" class="${tab === "set" ? "on" : ""}">⚙️ Réglages</button></div>
     <div id="pane"></div>
@@ -95,6 +97,7 @@ export function studentDetail(uid, tab = "path") {
     $$("[data-t]").forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
     $("#psave").onclick = save;
     $("#pundo").onclick = async () => { if (await confirmDlg("Revenir au dernier parcours enregistré ?", { ok: "Annuler mes modifications" })) { dirty = false; S.C.guard(null); studentDetail(uid, tab); } };
+    $("#s_msg").onclick = () => S.C.go("messages", uid);
     $("#s_prev").onclick = () => {
       startStudent({ api: api(), user: { uid }, profile: s, lessons: S.lessons.filter(l => l.published), files: S.files, folders: S.folders, plan: clone(P), progress: clone(pr), preview: true,
         onExit: () => S.C.restart("student", uid) });
@@ -103,12 +106,13 @@ export function studentDetail(uid, tab = "path") {
       { icon: "🧭", label: "Appliquer un parcours type…", act: () => applyTemplateHere() },
       { icon: "👯", label: "Copier le parcours d'un autre élève…", act: () => copyFrom() },
       { icon: "💾", label: "Enregistrer comme parcours type…", act: () => saveAsTemplate(P) },
+      { icon: "✍️", label: "Donner un sujet de rédaction…", act: () => assignTopic([uid]) },
       "-",
       { icon: "✉️", label: "Renvoyer l'invitation", act: async () => { try { await api().resetPassword(s.email); toast(DEMO ? "(démo : pas d'e-mail)" : "E-mail renvoyé ✓"); } catch (e) { fail(e); } } },
       { icon: s.disabled ? "▶️" : "⏸️", label: s.disabled ? "Réactiver le compte" : "Désactiver le compte", act: async () => { try { s.disabled = !s.disabled; await api().set("users/" + uid, { disabled: s.disabled }); await syncAccess(); render(); } catch (e) { fail(e); } } },
       { icon: "🗑️", label: "Supprimer l'élève", danger: true, act: async () => {
-        if (!await confirmDlg(`Supprimer ${esc(sName(s))}, son parcours et sa progression ?<br><br><small class="mute">Pour supprimer aussi son identifiant de connexion : console Firebase › Authentication.</small>`, { ok: "Supprimer", danger: true })) return;
-        try { await Promise.all(["users/", "plans/", "progress/"].map(p => api().del(p + uid))); S.students = S.students.filter(x => x.id !== uid); delete S.plans[uid]; await syncAccess(); dirty = false; S.C.guard(null); S.C.go("students"); toast("Élève supprimé"); } catch (e) { fail(e); }
+        if (!await confirmDlg(`Supprimer ${esc(sName(s))} et <b>toutes</b> ses données : parcours, progression, messages et rédactions ?<br><br><small class="mute">Pour supprimer aussi son identifiant de connexion : console Firebase › Authentication.</small>`, { ok: "Supprimer", danger: true })) return;
+        try { await purgeSocial(uid); await Promise.all(["users/", "plans/", "progress/"].map(p => api().del(p + uid))); S.students = S.students.filter(x => x.id !== uid); delete S.plans[uid]; await syncAccess(); dirty = false; S.C.guard(null); S.C.go("students"); toast("Élève supprimé"); } catch (e) { fail(e); }
       } },
     ]); };
     const pane = $("#pane");
@@ -246,7 +250,8 @@ export function studentDetail(uid, tab = "path") {
     $("#pv_imp").onclick = () => { const r = parseVocabText($("#pv_paste").value).rows; if (!r.length) return toast("Aucun mot reconnu."); P.vocab.push(...r); mark(); vocTab(p); toast(`${r.length} mot(s) ajouté(s). Pensez à enregistrer.`); };
   }
   function settings(p) {
-    p.innerHTML = `<div class="card"><label class="f">Nom de l'élève</label><div class="row"><input type="text" id="s_name" value="${esc(s.name || "")}"><button class="btn ghost" id="s_nsave" style="flex:none">Enregistrer le nom</button></div></div>
+    p.innerHTML = `<div class="card"><b>🔒 Confidentialité</b><p class="mute" style="margin:4px 0 0">${s.consentAt ? `Politique acceptée le ${fmtDate(s.consentAt)}.` : "Pas encore acceptée : ce sera demandé à sa première connexion."} Pour une demande d'effacement : menu ⋯ › Supprimer l'élève (efface aussi ses messages et rédactions).</p></div>`;
+    p.innerHTML += `<div class="card"><label class="f">Nom de l'élève</label><div class="row"><input type="text" id="s_name" value="${esc(s.name || "")}"><button class="btn ghost" id="s_nsave" style="flex:none">Enregistrer le nom</button></div></div>
       <div class="card"><b>Déblocage des leçons</b>
       <p><label><input type="radio" name="mode" value="manual" ${P.mode !== "auto" ? "checked" : ""}> <b>Manuel</b> : je débloque chaque leçon moi-même (🔓), au fil des cours.</label><br>
       <label><input type="radio" name="mode" value="auto" ${P.mode === "auto" ? "checked" : ""}> <b>Automatique</b> : la leçon suivante s'ouvre quand l'élève réussit la précédente. Les leçons 🙈 cachées restent cachées.</label></p></div>
@@ -361,7 +366,10 @@ export function dashboardView() {
     if (lastAtt && lastAtt.pct < 50 && Date.now() - lastAtt.at < 14 * 864e5) { const l = S.lessons.find(x => x.id === lastAtt.id); if (l) todo.push({ s, ic: "🆘", txt: `a eu ${lastAtt.pct} % à « ${esc(l.title)} »`, btn: "Ajouter une note / un exercice", act: () => S.C.go("student", s.id) }); }
     const d = daysAgo(st.last);
     if (!st.last && s.createdAt && Date.now() - s.createdAt > 3 * 864e5) todo.push({ s, ic: "✉️", txt: "ne s'est jamais connecté", btn: "Renvoyer l'invitation", act: async () => { try { await api().resetPassword(s.email); toast(DEMO ? "(démo : pas d'e-mail)" : "Invitation renvoyée ✓"); } catch (e) { fail(e); } } });
-    else if (d > 10) todo.push({ s, ic: "💤", txt: `inactif depuis ${d} jours`, btn: "Écrire un message", act: () => S.C.go("student", s.id, "set") });
+    else if (d > 10) todo.push({ s, ic: "💤", txt: `inactif depuis ${d} jours`, btn: "Écrire un message", act: () => S.C.go("messages", s.id) });
+    const th = S.threads?.[s.id];
+    if (unreadFor(th, "t")) todo.unshift({ s, ic: /suppression/i.test(th.lastText || "") ? "🗑️" : "💬", txt: `vous a écrit : « ${esc((th.lastText || "").slice(0, 70))} »`, btn: "Répondre", act: () => S.C.go("messages", s.id) });
+    for (const w of (S.writings?.[s.id] || []).filter(w => w.status === "sent")) todo.unshift({ s, ic: "✍️", txt: `a envoyé une rédaction : « ${esc(w.title)} »`, btn: "Corriger", act: () => S.C.go("correct", s.id, w.id) });
   }
   const recent = S.students.flatMap(s => Object.entries(S.progress[s.id]?.attempts || {}).flatMap(([id, a]) => a.map(x => ({ s, id, ...x })))).sort((a, b) => b.at - a.at).slice(0, 10);
   const week = recent.filter(r => Date.now() - r.at < 7 * 864e5).length;
@@ -372,7 +380,7 @@ export function dashboardView() {
       <div class="card"><h3 style="margin-top:0">✅ À faire</h3>${todo.map((t, i) => `<div class="todo"><span class="tic">${t.ic}</span>${av(t.s)}<div class="t"><b class="lnk" data-go="${t.s.id}">${esc(sName(t.s))}</b> ${t.txt}</div><button class="btn small" data-todo="${i}">${t.btn}</button></div>`).join("") || `<p class="mute">Rien à signaler. ☀️</p>`}</div>
       <div class="card"><h3 style="margin-top:0">🕒 Activité récente</h3>${recent.map(r => { const l = S.lessons.find(x => x.id === r.id); return `<div class="vrow row tight" style="align-items:center">${av(r.s, "sm")}<span style="flex:1"><b class="lnk" data-go="${r.s.id}">${esc(sName(r.s))}</b> · ${l ? esc(l.emoji + " " + l.title) : "?"}<br><small class="mute">${fmtDate(r.at)}</small></span><b style="color:${r.pct >= 70 ? "var(--ok)" : "var(--r)"}">${r.pct} %</b></div>`; }).join("") || `<p class="mute">Pas encore d'activité.</p>`}</div>
     </div>
-    <div class="card"><h3 style="margin-top:0">⚡ Raccourcis</h3><div class="row tight"><button class="btn ghost" data-nav2="students">✉️ Inviter un élève</button><button class="btn ghost" data-nav2="library">⬆️ Ajouter des supports</button><button class="btn ghost" data-nav2="lessons">🎓 Créer une leçon</button><button class="btn ghost" data-nav2="templates">🧭 Parcours types</button></div></div>`;
+    <div class="card"><h3 style="margin-top:0">⚡ Raccourcis</h3><div class="row tight"><button class="btn ghost" data-nav2="students">✉️ Inviter un élève</button><button class="btn ghost" data-nav2="library">⬆️ Ajouter des supports</button><button class="btn ghost" data-nav2="lessons">🎓 Créer une leçon</button><button class="btn ghost" data-nav2="templates">🧭 Parcours types</button><button class="btn ghost" data-nav2="writings">✍️ Donner une rédaction</button></div></div>`;
   $$("[data-todo]").forEach(b => b.onclick = () => todo[+b.dataset.todo].act());
   $$("[data-go]").forEach(b => b.onclick = () => S.C.go("student", b.dataset.go));
   $$("[data-nav2]").forEach(b => b.onclick = () => S.C.go(b.dataset.nav2));
