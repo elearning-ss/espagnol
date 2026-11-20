@@ -5,7 +5,7 @@ import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, 
 import { pathBuilder } from "./adm-path.js";
 import { DEMO } from "./fb.js";
 import { startStudent } from "./student.js";
-import { purgeSocial, assignTopic, unreadCount, toCorrect } from "./adm-social.js";
+import { purgeSocial, assignTopic, unreadCount, toCorrect, rulesBox } from "./adm-social.js";
 import { unreadFor } from "./social.js";
 import { fileKind, kindIcon, parseVocabText, uploadFile, fmtSize, MAX_FILE, previewFile } from "./files.js";
 
@@ -153,7 +153,7 @@ export function studentDetail(uid, tab = "path") {
   function hwTab(p) {
     P.homework = P.homework || [];
     const L = P.homework.map(h => ({ h, st: hwStatus(h, HL(), pr) })).sort((a, b) => (a.st.done - b.st.done) || String(b.h.due).localeCompare(String(a.h.due)));
-    p.innerHTML = `<div class="card row tight" style="align-items:center"><div style="flex:1"><b>📌 Devoirs de ${esc(sName(s))}</b><div class="mute">Ils s'affichent en haut de son espace avec la date. Leçons, documents et révision se cochent tout seuls quand il les fait.</div></div><button class="btn" id="hw_new">+ Donner un devoir</button></div>
+    p.innerHTML = rulesBox("returns") + `<div class="card row tight" style="align-items:center"><div style="flex:1"><b>📌 Devoirs de ${esc(sName(s))}</b><div class="mute">Ils s'affichent en haut de son espace avec la date. Leçons, documents et révision se cochent tout seuls quand il les fait.</div></div><button class="btn" id="hw_new">+ Donner un devoir</button></div>
       ${L.map(x => hwCard(x.h)).join("") || `<div class="card center mute">Aucun devoir pour l'instant.</div>`}`;
     $("#hw_new").onclick = () => hwEdit();
     $$("[data-rv]", p).forEach(b => b.onclick = async () => {

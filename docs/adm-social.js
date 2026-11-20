@@ -10,14 +10,14 @@ const av = (s, cls = "") => `<span class="av ${cls}">${esc(initials(s))}</span>`
 
 /* Données sociales : chargées avec le reste ; si les règles Firebase ne sont pas encore à jour, on le signale sans bloquer. */
 export async function reloadSocial() {
-  S.socialErr = null;
+  S.socialErr = null; S.errs = {};
   try { const T = await api().list("threads"); S.threads = Object.fromEntries(T.map(t => [t.id, t])); }
-  catch (e) { S.threads = {}; S.socialErr = e; }
+  catch (e) { S.threads = {}; S.errs.threads = e; }
   S.writings = {}; S.returns = {};
   try { await Promise.all(S.students.map(async s => { const b = `returns/${s.id}/items`; S.returns[s.id] = (await api().list(b)).map(r => ({ ...r, base: b })); })); }
-  catch (e) { S.socialErr = S.socialErr || e; }
+  catch (e) { S.errs.returns = e; }
   try { await Promise.all(S.students.map(async s => { S.writings[s.id] = await loadWritings(api(), s.id); })); }
-  catch (e) { S.socialErr = S.socialErr || e; }
+  catch (e) { S.errs.writings = e; }
 }
 export const unreadCount = () => S.students.filter(s => unreadFor(S.threads?.[s.id], "t")).length;
 export const toCorrect = () => S.students.flatMap(s => (S.writings?.[s.id] || []).filter(w => w.status === "sent").map(w => ({ s, w })));
@@ -25,7 +25,11 @@ export function socialBadges() {
   const set = (k, n) => { const b = $(`#nav [data-nav="${k}"]`); if (!b) return; b.querySelector(".nb")?.remove(); if (n) b.insertAdjacentHTML("beforeend", `<span class="nb">${n}</span>`); };
   set("messages", unreadCount()); set("writings", toCorrect().length);
 }
-const rulesBox = () => S.socialErr ? `<div class="warn">${rulesHint(S.socialErr)}<br><small>Console Firebase › Firestore Database › Règles : collez le nouveau texte des règles, puis « Publier ».</small></div>` : "";
+const WHAT = { threads: "la messagerie", writings: "les rédactions", returns: "les copies rendues par les élèves" };
+export const rulesBox = (...keys) => {
+  const k = keys.filter(x => S.errs?.[x]); if (!k.length) return "";
+  return `<div class="warn">Les règles de sécurité Firebase ne permettent pas encore ${k.map(x => WHAT[x]).join(", ")}.<br><small>Console Firebase › Firestore Database › Règles : collez le texte complet du dernier fichier <b>firestore.rules</b>, puis « Publier ». Attendez une minute et actualisez la page.</small></div>`;
+};
 
 /* =================== MESSAGES =================== */
 export function messagesView(uid) {
@@ -34,7 +38,7 @@ export function messagesView(uid) {
   const list = [...act].sort((a, b) => (S.threads[b.id]?.lastAt || 0) - (S.threads[a.id]?.lastAt || 0));
   if (!uid && matchMedia("(min-width: 900px)").matches) uid = list.find(s => S.threads[s.id])?.id || list[0]?.id;
   const cur = uid && studentById(uid);
-  ui.m.innerHTML = rulesBox() + (act.length ? `<div class="inbox ${cur ? "has" : ""}">
+  ui.m.innerHTML = rulesBox("threads") + (act.length ? `<div class="inbox ${cur ? "has" : ""}">
     <div class="card ib-l">${list.map(s => { const th = S.threads[s.id], un = unreadFor(th, "t"); return `<button class="ib-row ${s.id === uid ? "on" : ""} ${un ? "un" : ""}" data-u="${s.id}">${av(s, "sm")}<span class="t"><b>${esc(sName(s))}</b><small class="mute">${th ? `${th.lastFrom === "t" ? "Vous : " : ""}${esc(th.lastText || "")}` : "Pas encore de message"}</small></span>${th ? `<small class="mute">${fmtTime(th.lastAt)}</small>` : ""}${un ? `<i class="dot"></i>` : ""}</button>`; }).join("")}</div>
     <div class="ib-r">${cur ? `<div class="card ib-h row tight" style="align-items:center"><button class="ib back" id="ib_back" aria-label="Retour">←</button>${av(cur, "sm")}<b style="flex:1">${esc(sName(cur))}</b><button class="btn ghost small" id="ib_st">Voir sa fiche</button></div><div id="chat"></div>` : `<div class="card center mute">Choisissez un élève.</div>`}</div></div>`
     : `<div class="card center mute">Invitez d'abord un élève.</div>`);
@@ -42,7 +46,7 @@ export function messagesView(uid) {
   if (cur) {
     $("#ib_back").onclick = () => { stopPoll(); messagesView(null); };
     $("#ib_st").onclick = () => S.C.go("student", cur.id);
-    chatBox($("#chat"), { api: api(), uid: cur.id, me: "t", other: sName(cur), onRead: () => { S.threads[cur.id] = { ...(S.threads[cur.id] || {}), readT: Date.now() }; const r = $(`[data-u="${cur.id}"]`); if (r) { r.classList.remove("un"); r.querySelector(".dot")?.remove(); } api().get("threads/" + cur.id).then(t => { if (t) S.threads[cur.id] = t; socialBadges(); }).catch(() => {}); } });
+    chatBox($("#chat"), { api: api(), uid: cur.id, me: "t", other: sName(cur), onRead: () => { S.threads[cur.id] = { ...(S.threads[cur.id] || {}), readT: Date.now() }; const r = $(`[data-u="${cur.id}"]`); if (r) { r.classList.remove("un"); r.querySelector(".dot")?.remove(); } api().get("threads/" + cur.id).then(t => { if (t) { S.threads[cur.id] = t; const sm = r?.querySelector(".t small"); if (sm) sm.textContent = (t.lastFrom === "t" ? "Vous : " : "") + (t.lastText || ""); } socialBadges(); }).catch(() => {}); } });
   }
   socialBadges();
 }
@@ -53,7 +57,7 @@ export function writingsView() {
   const all = S.students.flatMap(s => (S.writings[s.id] || []).map(w => ({ s, w })));
   const by = st => all.filter(x => x.w.status === st);
   const row = ({ s, w }) => `<div class="item wrow" data-w="${s.id}|${w.id}">${av(s, "sm")}<div style="flex:1;min-width:0"><b>${esc(w.title || "Sans titre")}</b><div class="mute">${esc(sName(s))} · ${w.status === "sent" ? `envoyée ${fmtTime(w.sentAt)} · ${wordCount(w.text)} mots` : w.status === "done" ? `corrigée ${fmtDate(w.doneAt)}${w.grade ? " · " + esc(w.grade) : ""}${w.seenS ? " · 👁️ lue" : ""}` : w.status === "todo" ? `sujet donné ${fmtDate(w.at)}` : "brouillon en cours"}</div></div><span>›</span></div>`;
-  ui.m.innerHTML = rulesBox() + `<div class="card row tight" style="align-items:center"><div style="flex:1"><b>Productions écrites</b><div class="mute">Donnez un sujet, l'élève écrit et envoie ; vous annotez son texte et il voit la correction.</div></div><button class="btn" id="wn">+ Donner un sujet</button></div>
+  ui.m.innerHTML = rulesBox("writings") + `<div class="card row tight" style="align-items:center"><div style="flex:1"><b>Productions écrites</b><div class="mute">Donnez un sujet, l'élève écrit et envoie ; vous annotez son texte et il voit la correction.</div></div><button class="btn" id="wn">+ Donner un sujet</button></div>
     <div class="card"><h3 style="margin-top:0">📥 À corriger (${by("sent").length})</h3><div class="list">${by("sent").map(row).join("") || `<p class="mute">Rien à corriger. ☕</p>`}</div></div>
     <div class="card"><h3 style="margin-top:0">📝 Sujets en attente (${by("todo").length + by("draft").length})</h3><div class="list">${[...by("todo"), ...by("draft")].map(row).join("") || `<p class="mute">Aucun.</p>`}</div></div>
     <div class="card"><h3 style="margin-top:0">✅ Corrigées</h3><div class="list">${by("done").slice(0, 30).map(row).join("") || `<p class="mute">Aucune pour l'instant.</p>`}</div></div>`;

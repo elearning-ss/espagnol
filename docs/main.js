@@ -1,7 +1,7 @@
 // Démarrage : connexion, puis espace professeur ou espace élève selon le rôle.
 import { fb, DEMO, authError } from "./fb.js";
 import { ADMIN_EMAIL } from "./config.js";
-import { $, $$, esc, ui, cleanLesson } from "./core.js";
+import { $, $$, esc, ui, cleanLesson, installFloatingAccents } from "./core.js";
 import { startAdmin } from "./admin.js";
 import { startStudent } from "./student.js";
 import { SEED, DEFAULT_TEMPLATE } from "./seed.js";
@@ -14,6 +14,7 @@ try { if ("serviceWorker" in navigator && (location.protocol === "https:" || loc
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); window.__installPrompt = e; });
 let api;
 
+installFloatingAccents();
 (async () => {
   try { api = await fb(); }
   catch (e) { $("#m").innerHTML = `<div class="warn">Impossible de se connecter à Firebase : ${esc(e.message)}. Vérifiez votre connexion et le fichier config.js.</div>`; return; }

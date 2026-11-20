@@ -229,6 +229,67 @@ export function editLesson(id, tab = "info") {
     let saved = null;
     const keepSel = () => { const s = getSelection(); saved = s.rangeCount && rte && rte.contains(s.anchorNode) ? s.getRangeAt(0).cloneRange() : null; };
     const restoreSel = () => { if (saved) { const s = getSelection(); s.removeAllRanges(); s.addRange(saved); } };
+    // 🔊 Audio : entoure chaque morceau de texte sélectionné d'un <span class="say">, sans toucher aux paragraphes ni aux encadrés
+    const sayRange = rg => {
+      const nodes = [], tw = document.createTreeWalker(rte, NodeFilter.SHOW_TEXT);
+      for (let n; (n = tw.nextNode());) if (rg.intersectsNode(n) && n.nodeValue.trim()) nodes.push(n);
+      const made = [];
+      for (let n of nodes) {
+        if (n.parentElement.closest("span.say")) continue;
+        let a = n === rg.startContainer ? rg.startOffset : 0, z = n === rg.endContainer ? rg.endOffset : n.nodeValue.length;
+        while (a < z && /\s/.test(n.nodeValue[a])) a++; while (z > a && /\s/.test(n.nodeValue[z - 1])) z--;   // pas d'espaces au bord
+        if (a >= z) continue;
+        if (z < n.nodeValue.length) n.splitText(z);
+        if (a > 0) n = n.splitText(a);
+        const sp = document.createElement("span"); sp.className = "say"; n.replaceWith(sp); sp.appendChild(n); made.push(sp);
+      }
+      // deux morceaux voisins (ex. « hola » en gras + « amigo ») restent séparés : c'est voulu, chacun se prononce
+      if (made.length) { const r = document.createRange(); r.setStartBefore(made[0]); r.setEndAfter(made[made.length - 1]); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r); }
+      else { // tout était déjà en audio : on le retire
+        const ss = new Set(nodes.map(n => n.parentElement.closest("span.say")).filter(Boolean));
+        ss.forEach(x => x.replaceWith(...x.childNodes)); rte.normalize(); if (ss.size) toast("Audio retiré");
+      }
+    };
+    // 📝 Encadré / 💬 Modèle : transforme les lignes sélectionnées en encadré ; recliquer dans un encadré le retire
+    const boxRange = cls => {
+      const s = getSelection(), rg = s.rangeCount && rte.contains(s.anchorNode) ? s.getRangeAt(0) : null;
+      const top = n => { while (n && n.parentNode !== rte) n = n.parentNode; return n; };
+      if (!rg) { insertHtml(`<div class="${cls}">Votre texte ici</div><p><br></p>`); return; }
+      const t0 = top(rg.startContainer === rte ? rte.childNodes[rg.startOffset] || rte.lastChild : rg.startContainer);
+      let t1 = top(rg.endContainer === rte ? rte.childNodes[Math.max(0, rg.endOffset - 1)] : rg.endContainer);
+      // triple-clic : la sélection déborde jusqu'au tout début de la ligne suivante, on ne la compte pas
+      if (t1 && t1 !== t0) { const z = document.createRange(); z.setStartBefore(t1); z.setEnd(rg.endContainer, rg.endOffset); if (!z.toString().trim()) t1 = t1.previousSibling; }
+      // déjà un encadré : on le retire (ou on change de type)
+      if (t0 && t0 === t1 && t0.nodeType === 1 && t0.matches(".note,.model")) {
+        if (t0.classList.contains(cls)) { const p = document.createElement("p"); p.append(...t0.childNodes); t0.replaceWith(p); toast("Encadré retiré"); }
+        else t0.className = cls;
+        mark(); return;
+      }
+      if (rg.collapsed) {
+        if (!t0 || !t0.textContent.trim()) { insertHtml(`<div class="${cls}">Votre texte ici</div><p><br></p>`); return; }
+      }
+      // morceau de phrase au milieu d'une ligne : on sort ce morceau dans son propre encadré
+      const partial = t0 === t1 && t0 && rg.toString().trim() && rg.toString().trim().length < t0.textContent.trim().length;
+      const box = document.createElement("div"); box.className = cls;
+      if (partial) {
+        box.appendChild(rg.extractContents());
+        const after = document.createRange(); after.setStart(rg.endContainer, rg.endOffset); after.setEndAfter(t0);
+        const rest = after.extractContents(); // reste de la ligne
+        t0.after(box);
+        if (rest.textContent.trim()) { const p = document.createElement(t0.nodeName === "#text" ? "p" : t0.nodeName); p.append(...(rest.firstChild?.childNodes || rest.childNodes)); box.after(p); }
+        if (!t0.textContent.trim()) t0.remove();
+      } else {
+        // une ou plusieurs lignes entières
+        const blocks = []; for (let n = t0; n; n = n.nextSibling) { blocks.push(n); if (n === t1) break; }
+        const parts = blocks.filter(b => b.textContent.trim() || b.nodeName === "IMG");
+        parts.forEach((b, i) => { if (i) box.appendChild(document.createElement("br")); if (b.nodeType === 3) box.appendChild(b.cloneNode()); else if (/^(P|DIV|H\d)$/.test(b.nodeName)) box.append(...b.cloneNode(true).childNodes); else box.appendChild(b.cloneNode(true)); });
+        if (!parts.length) box.textContent = "Votre texte ici";
+        blocks[0].before(box); blocks.forEach(b => b.remove());
+      }
+      if (!box.nextSibling) { const p = document.createElement("p"); p.innerHTML = "<br>"; box.after(p); }
+      const r = document.createRange(); r.selectNodeContents(box); r.collapse(false); s.removeAllRanges(); s.addRange(r);
+      rte.focus(); mark();
+    };
     $("#tb").onmousedown = e => { if (e.target.closest("button")) e.preventDefault(); if (e.target.closest('select[data-c="acc"]')) keepSel(); };
     $("#tb").onclick = $("#tb").onchange = async e => {
       const b = e.target.closest("[data-c]"); if (!b) return;
@@ -244,12 +305,10 @@ export function editLesson(id, tab = "info") {
         const node = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement);
         const inSay = node && node.closest && node.closest("#rte span.say");
         if (inSay) { inSay.replaceWith(...inSay.childNodes); mark(); return toast("Audio retiré"); }
-        if (s.isCollapsed) return toast("Sélectionnez d'abord une phrase espagnole.");
-        const frag = s.getRangeAt(0).cloneContents(), tmp = document.createElement("div"); tmp.appendChild(frag);
-        tmp.querySelectorAll("span.say").forEach(x => x.replaceWith(...x.childNodes));
-        return insertHtml(`<span class="say">${tmp.innerHTML}</span>`);
+        if (s.isCollapsed || !s.toString().trim()) return toast("Sélectionnez d'abord une phrase espagnole.");
+        sayRange(s.getRangeAt(0)); mark(); return;
       }
-      if (c === "note" || c === "model") { const s = getSelection(); const t = s && !s.isCollapsed ? esc(s.toString()) : "Votre texte ici"; return insertHtml(`<div class="${c}">${t}</div><p><br></p>`); }
+      if (c === "note" || c === "model") return boxRange(c);
       if (c === "table") {
         keepSel();
         const r = await modal({ title: "Insérer un tableau", body: `<div class="grid2"><div><label class="f">Lignes</label><input type="number" id="tr" value="3" min="1" max="40"></div><div><label class="f">Colonnes</label><input type="number" id="tc" value="2" min="1" max="8"></div></div>`, buttons: [{ label: "Annuler", value: null }, { label: "Insérer", primary: true, act: a => [+a.body.querySelector("#tr").value, +a.body.querySelector("#tc").value] }] }).result;

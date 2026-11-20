@@ -354,3 +354,58 @@ export function mdLite(src) {
   }).join("");
 }
 export const fmtTime = t => t ? new Date(t).toLocaleString("fr-BE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+
+/* ---------- barre d'accents flottante : apparaît sous tout champ de texte, partout dans l'application ----------
+   (sauf là où une barre d'accents est déjà affichée, et dans les champs e-mail, mot de passe, nombre, date, lien) */
+const FA_KEYS = ["á", "é", "í", "ó", "ú", "ü", "ñ", "¿", "¡"];
+export function installFloatingAccents() {
+  if (document.getElementById("fAcc")) return;
+  const bar = document.createElement("div");
+  bar.id = "fAcc"; bar.className = "facc"; bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "Caractères espagnols");
+  let up = false, small = false, cur = null;
+  try { small = localStorage.getItem("paso_facc_small") === "1"; } catch (e) {}
+  const draw = () => {
+    bar.classList.toggle("small", small);
+    bar.innerHTML = small ? `<button type="button" class="fk" data-open title="Afficher les caractères espagnols">ñ á</button>`
+      : FA_KEYS.map(k => `<button type="button" class="fk" data-k="${k}" title="${k}">${up ? k.toUpperCase() : k}</button>`).join("")
+        + `<button type="button" class="fk sh ${up ? "on" : ""}" data-sh title="Majuscule (Á, Ñ…)" aria-pressed="${up}">⇧</button><button type="button" class="fk x" data-min title="Réduire">–</button>`;
+  };
+  draw(); document.body.appendChild(bar);
+  const editable = el => {
+    if (!el || el.disabled || el.readOnly) return false;
+    if (el.isContentEditable) return true;
+    if (el.tagName === "TEXTAREA") return true;
+    return el.tagName === "INPUT" && ["text", "search", ""].includes((el.getAttribute("type") || "").toLowerCase());
+  };
+  // une barre d'accents « locale » est déjà là (exercices, carnet, messagerie…) : on ne double pas
+  const hasLocal = el => { let n = el.parentElement; for (let i = 0; n && i < 5; i++, n = n.parentElement) if (n.querySelector(".accents")) return true; return false; };
+  const place = () => {
+    if (!cur || !cur.isConnected) return hide();
+    const r = cur.getBoundingClientRect(), h = bar.offsetHeight || 44, w = bar.offsetWidth || 400, vh = window.visualViewport?.height || innerHeight;
+    if (r.bottom < 0 || r.top > vh) { bar.style.visibility = "hidden"; return; }
+    bar.style.visibility = "";
+    let top = Math.min(r.bottom + 6, vh - h - 8);           // sous le champ, ou en bas de l'écran pour un grand champ
+    if (top < r.top + 8 && r.top - h - 6 > 8 && r.height < 120) top = r.top - h - 6;
+    bar.style.top = Math.max(8, top) + "px";
+    bar.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + "px";
+  };
+  const show = el => { cur = el; bar.classList.add("on"); place(); };
+  const hide = () => { cur = null; bar.classList.remove("on"); };
+  document.addEventListener("focusin", e => { const el = e.target; editable(el) && !hasLocal(el) ? show(el) : (bar.contains(el) || hide()); });
+  document.addEventListener("focusout", () => setTimeout(() => { const a = document.activeElement; if (!editable(a) || hasLocal(a)) hide(); }, 120));
+  addEventListener("scroll", () => cur && place(), true); addEventListener("resize", () => cur && place());
+  window.visualViewport?.addEventListener("resize", () => cur && place());
+  document.addEventListener("input", e => { if (e.target === cur) place(); });
+  bar.addEventListener("mousedown", e => e.preventDefault());   // le champ garde le curseur
+  bar.addEventListener("click", e => {
+    const b = e.target.closest(".fk"); if (!b) return;
+    if (b.dataset.open !== undefined || b.dataset.min !== undefined) { small = b.dataset.min !== undefined; try { localStorage.setItem("paso_facc_small", small ? "1" : "0"); } catch (x) {} draw(); return place(); }
+    if (b.dataset.sh !== undefined) { up = !up; draw(); return; }
+    const el = cur; if (!el) return;
+    const c = up ? b.dataset.k.toUpperCase() : b.dataset.k;
+    el.focus();
+    if (el.isContentEditable) document.execCommand("insertText", false, c);
+    else { const a = el.selectionStart ?? el.value.length, z = el.selectionEnd ?? a; el.setRangeText(c, a, z, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); }
+    if (up) { up = false; draw(); }
+  });
+}
