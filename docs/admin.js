@@ -18,8 +18,15 @@ export async function startAdmin(ctx, view = "home", ...args) {
   S.C = { ...ctx, go, guard: fn => guardFn = fn, restart: (v, ...a) => startAdmin(ctx, v, ...a) };
   document.body.classList.add("admin");
   $("#nav").className = "side";
-  $("#nav").innerHTML = `<div class="brand"><span class="flag"></span>Paso a paso</div>` + NAV.map(([k, i, t]) => `<button data-nav="${k}"><b>${i}</b><span>${t}</span></button>`).join("") + (DEMO ? `<div class="demo-tag">🧪 Mode démo</div>` : "");
-  $$("#nav [data-nav]").forEach(b => b.onclick = () => go(b.dataset.nav));
+  // sur téléphone : 5 onglets + « Plus » (parcours types, bibliothèque, compte)
+  const MORE = ["templates", "library", "account"], btn = ([k, i, t]) => `<button data-nav="${k}"${MORE.includes(k) ? " data-m" : ""}><b>${i}</b><span>${t}</span></button>`;
+  $("#nav").innerHTML = `<div class="brand"><span class="flag"></span>Paso a paso</div>` + NAV.map(btn).join("")
+    + `<button class="more-btn" id="navmore" aria-expanded="false"><b>⋯</b><span>Plus</span></button><div class="navmore" id="navsheet">${NAV.filter(n => MORE.includes(n[0])).map(([k, i, t]) => `<button data-nav="${k}"><b>${i}</b><span>${t}</span></button>`).join("")}</div>`
+    + (DEMO ? `<div class="demo-tag">🧪 Mode démo</div>` : "");
+  const sheet = open => { const n = $("#nav"), m = $("#navmore"); if (!n || !m) return; n.classList.toggle("open", open); m.setAttribute("aria-expanded", open); };
+  $$("#nav [data-nav]").forEach(b => b.onclick = () => { sheet(false); go(b.dataset.nav); });
+  $("#navmore").onclick = e => { e.stopPropagation(); sheet(!$("#nav").classList.contains("open")); };
+  if (!window.__navClose) { window.__navClose = true; document.addEventListener("click", e => { const n = $("#nav"); if (n?.classList.contains("open") && !e.target.closest("#navsheet")) { n.classList.remove("open"); $("#navmore")?.setAttribute("aria-expanded", "false"); } }); }
   $("#hdr-right").innerHTML = `<span class="pill">👩‍🏫 ${esc(ctx.profile.name || "Professeur")}</span>`;
   ui.m.innerHTML = `<p class="mute center">Chargement…</p>`;
   try { await reload(); await reloadSocial(); } catch (e) { fail(e); }
@@ -32,6 +39,7 @@ async function go(v, ...args) {
   document.querySelectorAll(".ctx,.ov").forEach(e => e.remove());
   current = v;
   $$("#nav [data-nav]").forEach(b => b.classList.toggle("on", b.dataset.nav === (SECTION[v] || v)));
+  $("#navmore")?.classList.toggle("on", ["templates", "library", "account"].includes(SECTION[v] || v));
   try { VIEWS[v](...args); } catch (e) { fail(e); }
   socialBadges();
   // nouveaux messages / rédactions : vérification discrète toutes les 2 minutes
