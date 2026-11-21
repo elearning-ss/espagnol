@@ -1,5 +1,5 @@
 // Élèves (liste, invitation, fiche, parcours, suivi) et parcours types.
-import { $, $$, esc, ui, fmtDate, buildPath, pathLessons, ikey, newId, typeName, hwStatus, isoDay, fmtDue } from "./core.js";
+import { $, $$, esc, ui, fmtDate, buildPath, pathLessons, ikey, newId, typeName, hwStatus, isoDay, fmtDue, avatar, avatarEditor } from "./core.js";
 import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast, fileDrop } from "./ui.js";
 import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, sName, initials, pickStudents } from "./adm-state.js";
 import { pathBuilder } from "./adm-path.js";
@@ -19,7 +19,7 @@ export function stats(s) {
   const docs = P.reduce((a, c) => a + c.items.filter(i => i.k !== "l" && i.visible).length, 0);
   return { P, L, passed, open, total: L.length, last: pr.last, att, docs };
 }
-const av = (s, cls = "") => `<span class="av ${cls}">${esc(initials(s))}</span>`;
+const av = (s, cls = "") => avatar(s, cls);
 const daysAgo = t => t ? Math.floor((Date.now() - t) / 864e5) : null;
 
 /* =================== LISTE =================== */
@@ -300,12 +300,15 @@ export function studentDetail(uid, tab = "path") {
     $("#pv_imp").onclick = () => { const r = parseVocabText($("#pv_paste").value).rows; if (!r.length) return toast("Aucun mot reconnu."); P.vocab.push(...r); mark(); vocTab(p); toast(`${r.length} mot(s) ajouté(s). Pensez à enregistrer.`); };
   }
   function settings(p) {
-    p.innerHTML = `<div class="card"><b>🔒 Confidentialité</b><p class="mute" style="margin:4px 0 0">${s.consentAt ? `Politique acceptée le ${fmtDate(s.consentAt)}.` : "Pas encore acceptée : ce sera demandé à sa première connexion."} Pour une demande d'effacement : menu ⋯ › Supprimer l'élève (efface aussi ses messages et rédactions).</p></div>`;
+    p.innerHTML = `<div class="card"><b>🖼️ Photo de profil</b><div id="s_av" style="margin-top:8px"></div></div><div class="card"><b>🔒 Confidentialité</b><p class="mute" style="margin:4px 0 0">${s.consentAt ? `Politique acceptée le ${fmtDate(s.consentAt)}.` : "Pas encore acceptée : ce sera demandé à sa première connexion."} Pour une demande d'effacement : menu ⋯ › Supprimer l'élève (efface aussi ses messages et rédactions).</p></div>`;
     p.innerHTML += `<div class="card"><label class="f">Nom de l'élève</label><div class="row"><input type="text" id="s_name" value="${esc(s.name || "")}"><button class="btn ghost" id="s_nsave" style="flex:none">Enregistrer le nom</button></div></div>
       <div class="card"><b>Déblocage des leçons</b>
       <p><label><input type="radio" name="mode" value="manual" ${P.mode !== "auto" ? "checked" : ""}> <b>Manuel</b> : je débloque chaque leçon moi-même (🔓), au fil des cours.</label><br>
       <label><input type="radio" name="mode" value="auto" ${P.mode === "auto" ? "checked" : ""}> <b>Automatique</b> : la leçon suivante s'ouvre quand l'élève réussit la précédente. Les leçons 🙈 cachées restent cachées.</label></p></div>
       <div class="card"><b>💬 Message pour l'élève</b><p class="mute">Affiché en haut de son espace.</p><textarea id="s_msg" placeholder="ex. Bravo pour ta progression ! Pour jeudi, révise le chapitre 2.">${esc(P.message || "")}</textarea></div>`;
+    avatarEditor($("#s_av", p), s, async d => {
+      try { await api().set("users/" + uid, { avatar: d }); s.avatar = d; toast(d ? "Photo enregistrée ✓" : "Photo retirée"); render(); } catch (e) { fail(e); return false; }
+    }, { who: "eleve" });
     $("#s_nsave").onclick = async () => { try { s.name = $("#s_name").value.trim(); await api().set("users/" + uid, { name: s.name }); toast("Nom enregistré"); render(); } catch (e) { fail(e); } };
     $$("[name=mode]").forEach(r => r.onchange = () => { P.mode = r.value; mark(); });
     $("#s_msg").oninput = e => { P.message = e.target.value; mark(); };

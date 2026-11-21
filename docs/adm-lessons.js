@@ -1,5 +1,5 @@
 // Leçons interactives : liste, éditeur complet, import Word/PDF, exercices.
-import { $, $$, esc, ui, linkify, cleanLesson, runQuiz, autoVocabEx, fmtDate, typeName, ikey, parseGaps, setAudioResolver } from "./core.js";
+import { $, $$, esc, ui, linkify, cleanLesson, runQuiz, autoVocabEx, fmtDate, typeName, ikey, parseGaps, setAudioResolver, avatar } from "./core.js";
 import { modal, confirmDlg, promptDlg, choiceDlg, menu, toast, draggable, dropZone, fileDrop } from "./ui.js";
 import { S, api, fail, clone, saveOrder, lessonById, savePlan, addItemsToPlan, removeItemsFromPlan, planHas, sName, initials, syncAccess, fileById } from "./adm-state.js";
 import { SEED } from "./seed.js";
@@ -419,7 +419,7 @@ export function editLesson(id, tab = "info") {
     const key = "l:" + id;
     p.innerHTML = `<div class="card"><p class="mute">Ajoutez ou retirez cette leçon du parcours de chaque élève, et réglez son état. Enregistré immédiatement. Pour choisir le chapitre et la position exacte, ouvrez la fiche de l'élève.${W.published ? "" : "<br><b>La leçon est en brouillon : aucun élève ne la voit tant qu'elle n'est pas publiée.</b>"}</p>
       ${S.students.map(s => { const pl = S.plans[s.id], has = planHas(s.id, key), stt = pl?.state?.[key] || "locked", sc = S.progress[s.id]?.done?.[id];
-        return `<div class="vrow row" style="align-items:center"><span class="row tight" style="align-items:center"><span class="av">${esc(initials(s))}</span><span><b>${esc(sName(s))}</b>${sc != null ? `<br><small class="mute">meilleur score ${sc} %</small>` : ""}</span></span>
+        return `<div class="vrow row" style="align-items:center"><span class="row tight" style="align-items:center">${avatar(s)}<span><b>${esc(sName(s))}</b>${sc != null ? `<br><small class="mute">meilleur score ${sc} %</small>` : ""}</span></span>
         <span class="row tight" style="align-items:center">${sw(`data-in="${s.id}"`, has, "Dans son parcours")}${has ? stateSeg(s.id, stt) : ""}<button class="ib" data-open="${s.id}" title="Ouvrir la fiche">›</button></span></div>`; }).join("")}</div>`;
     $$("[data-in]").forEach(e => e.onchange = async () => {
       const uid = e.dataset.in, pl = clone(S.plans[uid]);

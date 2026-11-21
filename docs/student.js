@@ -1,5 +1,5 @@
 // Espace élève : Leçons · Exercices · Mon compte
-import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents, hwStatus, fmtDue, isoDay } from "./core.js";
+import { $, $$, esc, shuf, today, linkify, ui, speak, voiceState, toggleSlow, noVoiceWarning, buildPath, pathLessons, runQuiz, autoVocabEx, typeName, setAudioResolver, accentBar, bindAccents, hwStatus, fmtDue, isoDay, avatar, avatarEditor } from "./core.js";
 import { previewFile, fileKind, kindIcon, fmtSize, mountAudio, fileBlob, uploadFile, deleteFile, shrinkPhoto, MAX_FILE } from "./files.js";
 import { passwordBox, installCard, confirmDlg } from "./ui.js";
 import { authError } from "./fb.js";
@@ -22,8 +22,8 @@ export function startStudent(ctx) {
   $("#nav").className = "bottom";
   $("#nav").innerHTML = `<button data-nav="lessons"><b>📚</b>Leçons</button><button data-nav="exercises"><b>✏️</b>Exercices</button><button data-nav="messages"><b>💬</b>Messages</button><button data-nav="account"><b>👤</b>Mon compte</button>`;
   $$("#nav [data-nav]").forEach(b => b.onclick = () => go(b.dataset.nav));
-  $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button><button class="pill who" id="who" title="Mon compte">👤 ${esc(((C.profile.name || "").trim().split(/\s+/)[0]) || (C.profile.email || "").split("@")[0])}</button>`;
-  $("#who").onclick = () => go("account");
+  $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button><span id="whobox"></span>`;
+  drawWho();
   $("#spd").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; };
   if (C.preview) $("#exitprev").onclick = () => C.onExit();
   C.thread = null; C.writings = []; C.returns = [];
@@ -415,10 +415,15 @@ function card() {
 }
 
 /* ======================= MON COMPTE ======================= */
+function drawWho() {
+  const b = $("#whobox"); if (!b) return;
+  b.innerHTML = `<button class="pill who" id="who" title="Mon compte">${avatar(C.profile)}${esc(((C.profile.name || "").trim().split(/\s+/)[0]) || (C.profile.email || "").split("@")[0])}</button>`;
+  $("#who").onclick = () => go("account");
+}
 function account() {
   ui.setTitle("👤 Mon compte");
   const P = path(), passed = P.filter(p => p.passed).length, att = Object.values(C.progress.attempts).reduce((a, b) => a + b.length, 0);
-  ui.m.innerHTML = prevBanner() + `<div class="card"><h2 style="margin:0">${esc(C.profile.name || "Mon compte")}</h2><div class="mute">${esc(C.profile.email)}</div></div>
+  ui.m.innerHTML = prevBanner() + `<div class="card"><h2 style="margin:0 0 2px">${esc(C.profile.name || "Mon compte")}</h2><div class="mute" style="margin-bottom:12px">${esc(C.profile.email)}</div><div id="avbox"></div></div>
   <div class="kpi"><div><b>${passed} / ${P.length}</b><span class="mute">leçons réussies</span></div><div><b>${att}</b><span class="mute">séries d'exercices</span></div></div>
   ${C.plan.message ? `<div class="prof">💬 <b>Message de votre professeur</b>\n${esc(C.plan.message)}</div>` : ""}
   <div class="card"><b>Mes scores</b>${P.filter(p => p.unlocked).map(p => `<div class="vrow"><div class="row" style="align-items:center"><span>${esc(p.l.emoji)} ${esc(p.l.title)}</span><span class="mute" style="flex:none">${p.score ? p.score + " %" : "—"}</span></div><div class="minibar"><i style="width:${p.score || 0}%"></i></div></div>`).join("") || '<p class="mute">Pas encore de score.</p>'}</div>
@@ -435,9 +440,14 @@ function account() {
   $("#spd2").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; account(); };
   const o = $("#out"); if (o) o.onclick = () => C.api.logout();
   $("#pv1").onclick = () => showPrivacy(C.api);
+  avatarEditor($("#avbox"), C.profile, async d => {
+    if (C.preview) { ui.toast("Aperçu : rien n'est enregistré."); return false; }
+    try { await C.api.set("users/" + C.user.uid, { avatar: d }); C.profile.avatar = d; drawWho(); ui.toast(d ? "Photo enregistrée ✓" : "Photo retirée"); }
+    catch (e) { ui.toast("Erreur : " + (e.message || e), 5000); return false; }
+  });
   $("#pv2").onclick = async () => {
     let msgs = []; try { msgs = (await C.api.list(`threads/${C.user.uid}/msgs`)).sort((a, b) => a.at - b.at); } catch (e) {}
-    const data = { exporte_le: new Date().toISOString(), profil: { email: C.profile.email, prenom: C.profile.name || "", accord_confidentialite: C.profile.consentAt ? new Date(C.profile.consentAt).toISOString() : null },
+    const data = { exporte_le: new Date().toISOString(), profil: { email: C.profile.email, prenom: C.profile.name || "", photo_de_profil: C.profile.avatar ? "oui (image jointe dans « photo »)" : "non", photo: C.profile.avatar || null, accord_confidentialite: C.profile.consentAt ? new Date(C.profile.consentAt).toISOString() : null },
       progression: C.progress, parcours: { devoirs: C.plan.homework || [], vocabulaire_du_professeur: C.plan.vocab || [], message: C.plan.message || "" },
       messages: msgs.map(m => ({ de: m.f === "s" ? "moi" : "professeur", date: new Date(m.at).toISOString(), texte: m.t })), redactions: C.writings };
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));

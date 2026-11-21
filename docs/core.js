@@ -409,3 +409,44 @@ export function installFloatingAccents() {
     if (up) { up = false; draw(); }
   });
 }
+
+/* ---------- avatars : initiales par défaut, photo facultative (carrée, ≤ 100 Ko) ---------- */
+export const initialsOf = p => { const n = (p?.name || p?.email || "?").trim(); const w = n.split(/[\s@._-]+/).filter(Boolean); return ((w[0]?.[0] || "?") + (w.length > 1 ? w[1][0] : "")).toUpperCase(); };
+const okAvatar = a => typeof a === "string" && /^data:image\/(jpeg|png|webp);base64,/.test(a);
+export const avatar = (p, cls = "") => okAvatar(p?.avatar)
+  ? `<span class="av img ${cls}"><img src="${p.avatar}" alt="" loading="lazy" decoding="async"></span>`
+  : `<span class="av ${cls}">${esc(initialsOf(p))}</span>`;
+export async function avatarFromFile(file, max = 100 * 1024) {
+  if (!/^image\//.test(file.type)) throw new Error("Choisissez une image (photo JPG, PNG…).");
+  const url = URL.createObjectURL(file), img = new Image();
+  try {
+    await new Promise((ok, ko) => { img.onload = ok; img.onerror = () => ko(new Error("Image illisible (format HEIC ? essayez une capture ou un JPG).")); img.src = url; });
+    const side = Math.min(img.width, img.height), sx = (img.width - side) / 2, sy = (img.height - side) / 2;  // recadrage carré au centre
+    for (const [px, q] of [[256, .85], [256, .7], [200, .7], [160, .6], [128, .55]]) {
+      const c = document.createElement("canvas"); c.width = c.height = px;
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, px, px); g.drawImage(img, sx, sy, side, side, 0, 0, px, px);
+      const d = c.toDataURL("image/jpeg", q);
+      if (d.length * .75 <= max) return d;
+    }
+    throw new Error("Image trop lourde, même réduite.");
+  } finally { URL.revokeObjectURL(url); }
+}
+/* Petit éditeur : aperçu + « Choisir une photo » + « Retirer ». onSave(dataUrl|null) enregistre. */
+export function avatarEditor(box, person, onSave, { who = "vous" } = {}) {
+  const draw = () => {
+    box.innerHTML = `<div class="aved">${avatar(person, "xxl")}<div><div class="row tight"><button type="button" class="btn ghost small" data-av-pick>📷 ${person.avatar ? "Changer la photo" : "Ajouter une photo"}</button>${person.avatar ? `<button type="button" class="btn ghost small" data-av-del>Retirer</button>` : ""}</div>
+      <p class="mute" style="font-size:13px;margin:6px 0 0">Facultatif. Sans photo, les initiales s'affichent. La photo est recadrée en carré et réduite (100 Ko max) ; seuls ${who === "vous" ? "vous et vos professeurs la voyez" : "l'élève et les professeurs la voient"}.</p></div></div>`;
+    box.querySelector("[data-av-pick]").onclick = () => {
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = async () => {
+        const f = inp.files[0]; if (!f) return;
+        try { const d = await avatarFromFile(f); if (await onSave(d) !== false) { person.avatar = d; draw(); } }
+        catch (e) { ui.toast(e.message || String(e), 5000); }
+      };
+      inp.click();
+    };
+    const del = box.querySelector("[data-av-del]");
+    if (del) del.onclick = async () => { if (await onSave(null) !== false) { person.avatar = null; draw(); } };
+  };
+  draw();
+}

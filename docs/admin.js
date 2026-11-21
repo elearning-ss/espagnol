@@ -1,5 +1,5 @@
 // Espace professeur : coque (menu latéral), navigation et compte.
-import { $, $$, esc, ui, cleanLesson } from "./core.js";
+import { $, $$, esc, ui, cleanLesson, avatar, avatarEditor } from "./core.js";
 import { confirmDlg, toast, modal, passwordBox, installCard } from "./ui.js";
 import { DEMO } from "./fb.js";
 import { S, reload, fail, api, normPlan, sName, initials, pickStudents, syncAccess } from "./adm-state.js";
@@ -52,11 +52,11 @@ window.addEventListener("beforeunload", e => { if (guardFn) { e.preventDefault()
 /* ---------- compte ---------- */
 // prénom de la personne connectée, en haut à droite
 const firstName = p => { const n = (p?.name || "").trim(); return n && n !== "Professeur" ? n.split(/\s+/)[0] : (p?.email || "").split("@")[0].split(/[._-]/)[0].replace(/^./, c => c.toUpperCase()); };
-function drawWho() { $("#hdr-right").innerHTML = `<button class="pill" id="who" title="Mon compte">🧑‍🏫 ${esc(firstName(S.C.profile))}</button>`; $("#who").onclick = () => go("account"); }
+function drawWho() { $("#hdr-right").innerHTML = `<button class="pill" id="who" title="Mon compte">${S.C.profile.avatar ? avatar(S.C.profile) : "🧑‍🏫 "}${esc(firstName(S.C.profile))}</button>`; $("#who").onclick = () => go("account"); }
 function accountView() {
   ui.setTitle("⚙️ Mon compte");
   const C = S.C;
-  ui.m.innerHTML = `<div class="card"><b>👤 Mon profil</b><div class="mute" style="margin-bottom:6px">${esc(C.user.email)}</div>
+  ui.m.innerHTML = `<div class="card"><b>👤 Mon profil</b><div class="mute" style="margin-bottom:10px">${esc(C.user.email)}</div><div id="avbox" style="margin-bottom:6px"></div>
     <div class="grid2"><div><label class="f">Mon prénom et nom <small class="mute">(le prénom s'affiche en haut à droite)</small></label><input type="text" id="me_n" value="${esc(C.profile.name === "Professeur" ? "" : C.profile.name || "")}" placeholder="ex. Stéphanie Sirimarco"></div>
     <div><label class="f">Signature des invitations <small class="mute">(commune à tous les professeurs)</small></label><input type="text" id="me_sig" value="${esc(S.signature)}" placeholder="Stéphanie"></div></div>
     <p><button class="btn small" id="me_save">Enregistrer</button></p></div>
@@ -77,6 +77,10 @@ function accountView() {
   $("#impb").onclick = () => $("#impf").click();
   $("#impf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) restore(f).catch(fail); };
   $("#out").onclick = () => C.api.logout();
+  avatarEditor($("#avbox"), C.profile, async d => {
+    try { await api().set("users/" + C.user.uid, { avatar: d }); const me = S.admins.find(a => a.id === C.user.uid); if (me) me.avatar = d; C.profile.avatar = d; drawWho(); drawAdmins(); toast(d ? "Photo enregistrée ✓" : "Photo retirée"); }
+    catch (e) { fail(e); return false; }
+  });
   $("#me_save").onclick = async () => {
     const name = $("#me_n").value.trim(), sig = $("#me_sig").value.trim() || "Stéphanie";
     try {
@@ -95,7 +99,7 @@ function accountView() {
 function drawAdmins() {
   const box = $("#admins"), me = S.C.user.uid;
   box.innerHTML = `<b>👩‍🏫 Administrateurs</b><p class="mute">Les administrateurs ont tous les mêmes droits que vous : leçons, bibliothèque, élèves, parcours. Vous travaillez sur les mêmes données, comme dans une même école.</p>
-    ${S.admins.map(a => `<div class="vrow row" style="align-items:center"><span class="row tight" style="align-items:center"><span class="av">${esc(initials(a))}</span><span><b>${esc(sName(a))}</b>${a.id === me ? ' <span class="tag OK">vous</span>' : ""}<br><small class="mute">${esc(a.email)}</small></span></span>
+    ${S.admins.map(a => `<div class="vrow row" style="align-items:center"><span class="row tight" style="align-items:center">${avatar(a)}<span><b>${esc(sName(a))}</b>${a.id === me ? ' <span class="tag OK">vous</span>' : ""}<br><small class="mute">${esc(a.email)}</small></span></span>
       <span class="row tight" style="flex:none">${a.id !== me && a.mustChange && a.tempPw ? `<button class="btn ghost small" data-reinv="${a.id}">✉️ Invitation</button>` : ""}${a.id === me ? "" : `<button class="btn ghost small" data-demote="${a.id}">Retirer les droits</button>`}</span></div>`).join("")}
     <p class="row tight"><button class="btn small" id="ad_inv">✉️ Inviter un administrateur</button><button class="btn ghost small" id="ad_pro">⬆️ Passer un élève administrateur</button></p>`;
   $("#ad_inv").onclick = inviteAdmin;

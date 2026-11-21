@@ -1,12 +1,12 @@
 // Espace professeur : messagerie, rédactions à corriger, confidentialité.
-import { $, $$, esc, ui, fmtTime, fmtDate, textToHtml, safeHtml } from "./core.js";
+import { $, $$, esc, ui, fmtTime, fmtDate, textToHtml, safeHtml, avatar } from "./core.js";
 import { modal, confirmDlg, promptDlg, toast } from "./ui.js";
 import { S, api, fail, studentById, sName, initials, pickStudents } from "./adm-state.js";
 import { chatBox, stopPoll, unreadFor, rulesHint, loadWritings, W_STATUS, wordCount, correctionHtml, bindMarks } from "./social.js";
 import { loadPrivacy, privacyHtml, DEFAULT_PRIVACY } from "./privacy.js";
 import { deleteFile } from "./files.js";
 
-const av = (s, cls = "") => `<span class="av ${cls}">${esc(initials(s))}</span>`;
+const av = (s, cls = "") => avatar(s, cls);
 
 /* Données sociales : chargées avec le reste ; si les règles Firebase ne sont pas encore à jour, on le signale sans bloquer. */
 export async function reloadSocial() {

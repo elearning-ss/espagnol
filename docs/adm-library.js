@@ -1,5 +1,5 @@
 // Bibliothèque de supports de cours : un explorateur de fichiers façon Windows.
-import { $, $$, esc, ui, fmtDate, cleanLesson } from "./core.js";
+import { $, $$, esc, ui, fmtDate, cleanLesson, avatar } from "./core.js";
 import { modal, confirmDlg, promptDlg, menu, toast, draggable, dropZone, fileDrop } from "./ui.js";
 import { S, api, fail, clone, subFolders, folderFiles, descendants, folderPath, isInside, folderById, fileById, syncAccess, pickStudents, addItemsToPlan, removeItemsFromPlan, savePlan, studentById, sName, initials, saveOrder } from "./adm-state.js";
 import { uploadFile, deleteFile, previewFile, downloadFile, fileKind, kindIcon, kindName, fmtSize, fileBlob, fileToHtml, MAX_FILE } from "./files.js";
@@ -179,8 +179,8 @@ function accessHtml(key) {
   const via = (o.students || []).filter(u => !direct.some(s => s.id === u)).map(studentById).filter(Boolean);
   return `<div class="acc"><b>👥 Élèves qui y ont accès</b>
     ${direct.length || via.length ? "" : `<p class="mute">Personne pour l'instant.</p>`}
-    ${direct.map(s => `<span class="chip2" data-stu="${s.id}" title="Ouvrir la fiche"><span class="av sm">${esc(initials(s))}</span>${esc(sName(s))}</span>`).join("")}
-    ${via.length ? `<p class="mute" style="margin:8px 0 4px">Via un dossier attribué :</p>${via.map(s => `<span class="chip2 soft" data-stu="${s.id}"><span class="av sm">${esc(initials(s))}</span>${esc(sName(s))}</span>`).join("")}` : ""}
+    ${direct.map(s => `<span class="chip2" data-stu="${s.id}" title="Ouvrir la fiche">${avatar(s, "sm")}${esc(sName(s))}</span>`).join("")}
+    ${via.length ? `<p class="mute" style="margin:8px 0 4px">Via un dossier attribué :</p>${via.map(s => `<span class="chip2 soft" data-stu="${s.id}">${avatar(s, "sm")}${esc(sName(s))}</span>`).join("")}` : ""}
     <p><button class="btn ghost small" data-a="assign">Modifier…</button></p></div>`;
 }
 

@@ -1,5 +1,5 @@
 // État partagé de l'espace professeur + règles de synchronisation des accès.
-import { cleanLesson, ikey, newId, esc } from "./core.js";
+import { cleanLesson, ikey, newId, esc, avatar } from "./core.js";
 import { modal, toast } from "./ui.js";
 import { authError } from "./fb.js";
 
@@ -107,7 +107,7 @@ export function pickStudents({ title = "Choisir les élèves", intro = "", selec
   const body = document.createElement("div");
   body.innerHTML = `${intro ? `<p class="mute">${intro}</p>` : ""}<input type="text" placeholder="🔎 Rechercher un élève" class="pk-q" style="margin-bottom:8px">
     <div class="row tight" style="margin-bottom:8px"><button class="btn ghost small" data-all>Tout cocher</button><button class="btn ghost small" data-none>Tout décocher</button></div>
-    <div class="pk-list scrolly" style="max-height:50vh;overflow:auto">${S.students.map(s => `<label class="pk"><input type="checkbox" value="${s.id}" ${sel.has(s.id) ? "checked" : ""}><span class="av">${esc(initials(s))}</span><span><b>${esc(sName(s))}</b><br><small class="mute">${esc(s.email)}</small></span></label>`).join("")}</div>`;
+    <div class="pk-list scrolly" style="max-height:50vh;overflow:auto">${S.students.map(s => `<label class="pk"><input type="checkbox" value="${s.id}" ${sel.has(s.id) ? "checked" : ""}>${avatar(s)}<span><b>${esc(sName(s))}</b><br><small class="mute">${esc(s.email)}</small></span></label>`).join("")}</div>`;
   body.querySelector(".pk-q").oninput = e => { const q = e.target.value.toLowerCase(); body.querySelectorAll(".pk").forEach(l => l.style.display = l.textContent.toLowerCase().includes(q) ? "" : "none"); };
   body.querySelector("[data-all]").onclick = () => body.querySelectorAll(".pk input").forEach(i => { if (i.closest(".pk").style.display !== "none") i.checked = true; });
   body.querySelector("[data-none]").onclick = () => body.querySelectorAll(".pk input").forEach(i => i.checked = false);

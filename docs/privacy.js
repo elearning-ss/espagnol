@@ -17,6 +17,7 @@ Contact pour toute question sur vos données : ste_ss@hotmail.com
 - Votre parcours : leçons ouvertes, scores, essais, mots révisés, devoirs.
 - Ce que vous écrivez dans l'application : messages, rédactions, mots de votre carnet.
 - Les dates de vos connexions et de vos activités.
+- Si vous le souhaitez, une photo de profil (facultative). Elle n'est visible que par vous et vos professeurs, jamais par les autres élèves, et vous pouvez la retirer à tout moment dans « Mon compte ».
 
 Aucune donnée bancaire, aucune géolocalisation, aucune publicité. Votre mot de passe n'est jamais visible par la professeure.
 
