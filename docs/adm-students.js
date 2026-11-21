@@ -62,7 +62,7 @@ async function invite() {
     const t = S.templates.find(x => x.id === r.tpl);
     const plan = normPlan(t ? { chapters: freshChapters(t.chapters), state: clone(t.state || {}) } : {});
     await savePlan(uid, plan);
-    await sendInviteDialog({ name: r.name, email: r.email, pw, teacher: S.C.profile?.name || "Votre professeure", role: "student" });
+    await sendInviteDialog({ name: r.name, email: r.email, pw, teacher: S.signature || "Stéphanie", role: "student" });
     S.C.go("student", uid);
   } catch (e) {
     if (e.code === "auth/email-already-in-use") toast("Un compte existe déjà avec cet e-mail. Ouvrez la fiche de l'élève et utilisez « Renvoyer l'invitation ».", 6000);
@@ -72,7 +72,7 @@ async function invite() {
 const freshChapters = ch => clone(ch).map(c => ({ ...c, id: newId() }));
 // Renvoyer : même mot de passe provisoire s'il n'a pas encore choisi le sien ; sinon, lien « mot de passe oublié »
 export async function resendInvite(s) {
-  if (s.mustChange && s.tempPw) return sendInviteDialog({ name: s.name, email: s.email, pw: s.tempPw, teacher: S.C.profile?.name || "Votre professeure", role: s.role, again: true });
+  if (s.mustChange && s.tempPw) return sendInviteDialog({ name: s.name, email: s.email, pw: s.tempPw, teacher: S.signature || "Stéphanie", role: s.role, again: true });
   const c = await choiceDlg("✉️ Renvoyer l'invitation", `<b>${esc(sName(s))}</b> a déjà choisi son mot de passe. S'il l'a oublié, le plus simple est qu'il clique sur « Mot de passe oublié ? » sur la page de connexion.`,
     [{ label: "Envoyer le mail de réinitialisation", value: "fb" }]);
   if (c === "fb") { try { await api().resetPassword(s.email); toast(DEMO ? "(démo : pas d'e-mail)" : "E-mail envoyé ✓"); } catch (e) { fail(e); } }

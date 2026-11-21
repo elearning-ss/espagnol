@@ -459,3 +459,4 @@ nav.side .nb{position:absolute;background:var(--r);color:#fff;font-size:11px;fon
 .invpw{background:var(--ol);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:15px}
 .invpw b{font-family:ui-monospace,monospace;font-size:17px;letter-spacing:.5px}
 .invbtn{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}
+@media(max-width:420px){.pill.who{display:none}}

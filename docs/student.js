@@ -22,7 +22,8 @@ export function startStudent(ctx) {
   $("#nav").className = "bottom";
   $("#nav").innerHTML = `<button data-nav="lessons"><b>📚</b>Leçons</button><button data-nav="exercises"><b>✏️</b>Exercices</button><button data-nav="messages"><b>💬</b>Messages</button><button data-nav="account"><b>👤</b>Mon compte</button>`;
   $$("#nav [data-nav]").forEach(b => b.onclick = () => go(b.dataset.nav));
-  $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button>`;
+  $("#hdr-right").innerHTML = `${C.preview ? `<button class="pill" id="exitprev">✕ Quitter l'aperçu</button>` : ""}<button class="pill" id="spd">${voiceState.slow ? "🐢 lent" : "🔊 normal"}</button><button class="pill who" id="who" title="Mon compte">👤 ${esc(((C.profile.name || "").trim().split(/\s+/)[0]) || (C.profile.email || "").split("@")[0])}</button>`;
+  $("#who").onclick = () => go("account");
   $("#spd").onclick = () => { toggleSlow(); $("#spd").textContent = voiceState.slow ? "🐢 lent" : "🔊 normal"; };
   if (C.preview) $("#exitprev").onclick = () => C.onExit();
   C.thread = null; C.writings = []; C.returns = [];

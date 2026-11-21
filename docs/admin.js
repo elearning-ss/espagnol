@@ -28,7 +28,7 @@ export async function startAdmin(ctx, view = "home", ...args) {
   $$("#nav [data-nav]").forEach(b => b.onclick = () => { sheet(false); go(b.dataset.nav); });
   $("#navmore").onclick = e => { e.stopPropagation(); sheet(!$("#nav").classList.contains("open")); };
   if (!window.__navClose) { window.__navClose = true; document.addEventListener("click", e => { const n = $("#nav"); if (n?.classList.contains("open") && !e.target.closest("#navsheet")) { n.classList.remove("open"); $("#navmore")?.setAttribute("aria-expanded", "false"); } }); }
-  $("#hdr-right").innerHTML = `<span class="pill">👩‍🏫 ${esc(ctx.profile.name || "Professeur")}</span>`;
+  drawWho();
   ui.m.innerHTML = `<p class="mute center">Chargement…</p>`;
   try { await reload(); await reloadSocial(); } catch (e) { fail(e); }
   guardFn = null;
@@ -50,10 +50,16 @@ let socialTimer = null;
 window.addEventListener("beforeunload", e => { if (guardFn) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- compte ---------- */
+// prénom de la personne connectée, en haut à droite
+const firstName = p => { const n = (p?.name || "").trim(); return n && n !== "Professeur" ? n.split(/\s+/)[0] : (p?.email || "").split("@")[0].split(/[._-]/)[0].replace(/^./, c => c.toUpperCase()); };
+function drawWho() { $("#hdr-right").innerHTML = `<button class="pill" id="who" title="Mon compte">🧑‍🏫 ${esc(firstName(S.C.profile))}</button>`; $("#who").onclick = () => go("account"); }
 function accountView() {
   ui.setTitle("⚙️ Mon compte");
   const C = S.C;
-  ui.m.innerHTML = `<div class="card"><b>${esc(C.profile.name || "Professeur")}</b><div class="mute">${esc(C.user.email)}</div></div>
+  ui.m.innerHTML = `<div class="card"><b>👤 Mon profil</b><div class="mute" style="margin-bottom:6px">${esc(C.user.email)}</div>
+    <div class="grid2"><div><label class="f">Mon prénom et nom <small class="mute">(le prénom s'affiche en haut à droite)</small></label><input type="text" id="me_n" value="${esc(C.profile.name === "Professeur" ? "" : C.profile.name || "")}" placeholder="ex. Stéphanie Sirimarco"></div>
+    <div><label class="f">Signature des invitations <small class="mute">(commune à tous les professeurs)</small></label><input type="text" id="me_sig" value="${esc(S.signature)}" placeholder="Stéphanie"></div></div>
+    <p><button class="btn small" id="me_save">Enregistrer</button></p></div>
   ${DEMO ? `<div class="demo"><b>🧪 Mode démo.</b> Tout est stocké dans ce navigateur. Pour passer en vrai mode, suivez le README (configuration Firebase).<p><button class="btn ghost small" id="dreset">Réinitialiser la démo</button></p></div>` : ""}
   <div class="card" id="admins"></div>
   <div class="card" id="instcard"></div>
@@ -71,6 +77,15 @@ function accountView() {
   $("#impb").onclick = () => $("#impf").click();
   $("#impf").onchange = e => { const f = e.target.files[0]; e.target.value = ""; if (f) restore(f).catch(fail); };
   $("#out").onclick = () => C.api.logout();
+  $("#me_save").onclick = async () => {
+    const name = $("#me_n").value.trim(), sig = $("#me_sig").value.trim() || "Stéphanie";
+    try {
+      await api().set("users/" + C.user.uid, { name }); C.profile.name = name;
+      const me = S.admins.find(a => a.id === C.user.uid); if (me) me.name = name;
+      await api().set("settings/main", { signature: sig }); S.signature = sig;
+      drawWho(); drawAdmins(); toast("Profil enregistré ✓");
+    } catch (e) { fail(e); }
+  };
   drawAdmins();
   privacyCard($("#privc")).catch(fail);
   const dr = $("#dreset"); if (dr) dr.onclick = async () => { if (await confirmDlg("Effacer toutes les données de démo ?", { ok: "Effacer", danger: true })) { await C.api.reset(); location.reload(); } };
@@ -86,7 +101,7 @@ function drawAdmins() {
   $("#ad_inv").onclick = inviteAdmin;
   $("#ad_pro").onclick = promote;
   box.querySelectorAll("[data-demote]").forEach(b => b.onclick = () => demote(b.dataset.demote));
-  box.querySelectorAll("[data-reinv]").forEach(b => b.onclick = () => { const a = S.admins.find(x => x.id === b.dataset.reinv); sendInviteDialog({ name: a.name, email: a.email, pw: a.tempPw, teacher: S.C.profile?.name || "", role: "admin", again: true }); });
+  box.querySelectorAll("[data-reinv]").forEach(b => b.onclick = () => { const a = S.admins.find(x => x.id === b.dataset.reinv); sendInviteDialog({ name: a.name, email: a.email, pw: a.tempPw, teacher: S.signature || "Stéphanie", role: "admin", again: true }); });
 }
 async function inviteAdmin() {
   const body = document.createElement("div");
@@ -106,7 +121,7 @@ async function inviteAdmin() {
     await api().set("users/" + uid, doc, false);
     S.admins.push({ id: uid, ...doc });
     drawAdmins();
-    await sendInviteDialog({ name: r.name, email: r.email, pw, teacher: S.C.profile?.name || "", role: "admin" });
+    await sendInviteDialog({ name: r.name, email: r.email, pw, teacher: S.signature || "Stéphanie", role: "admin" });
   } catch (e) {
     if (e.code === "auth/email-already-in-use") toast("Ce compte existe déjà. Si c'est un élève, utilisez « Passer un élève administrateur ».", 6000);
     else fail(e);
