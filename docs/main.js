@@ -7,6 +7,7 @@ import { startStudent } from "./student.js";
 import { SEED, DEFAULT_TEMPLATE } from "./seed.js";
 import { uploadFile } from "./files.js";
 import { showPrivacy, needsConsent, consentScreen } from "./privacy.js";
+import { firstPasswordScreen } from "./invite.js";
 
 $("#back").onclick = () => ui.backFn && ui.backFn();
 // Application installable (PWA)
@@ -36,7 +37,7 @@ async function loginScreen(msg) {
     const st = (await api.list("users")).filter(u => u.role !== "admin");
     demo = `<div class="demo"><b>🧪 Mode démo</b> (Firebase pas encore configuré). Les données restent dans ce navigateur.<p class="row tight" style="margin:8px 0 0"><button class="btn small" data-demo="prof@demo">Entrer comme professeur</button>${st.map(s => `<button class="btn ghost small" data-demo="${esc(s.email)}">Élève : ${esc(s.name || s.email)}</button>`).join("")}</p></div>`;
   }
-  ui.m.innerHTML = `<div class="login">${demo}<div class="card"><div class="center"><div class="big">🇪🇸</div><h2 style="margin:0">Paso a paso</h2><p class="mute">L'espagnol pas à pas</p></div>
+  ui.m.innerHTML = `<div class="login">${demo}<div class="card"><div class="center"><div class="big"><span class="flag flag-xl" role="img" aria-label="Drapeau espagnol"></span></div><h2 style="margin:0">Paso a paso</h2><p class="mute">L'espagnol pas à pas</p></div>
     ${msg ? `<div class="warn">${esc(msg)}</div>` : ""}
     <label class="f">E-mail</label><input type="email" id="le" autocomplete="username">
     <label class="f">Mot de passe</label><input type="password" id="lp" autocomplete="current-password">
@@ -71,6 +72,7 @@ async function enter(u) {
       await api.set("users/" + u.uid, profile, false);
     }
     if (!profile) { await api.logout(); return loginScreen("Ce compte n'est pas reconnu. Demandez une invitation à votre professeur."); }
+    if (profile.mustChange && !(await firstPasswordScreen(api, u, profile))) { await api.logout(); return loginScreen("Reconnectez-vous avec votre mot de passe provisoire."); }
     if (profile.role === "admin") return startAdmin({ api, user: u, profile });
     if (profile.disabled) { await api.logout(); return loginScreen("Votre accès est suspendu. Contactez votre professeur."); }
     if (await needsConsent(api, profile) && !(await consentScreen(api, u, profile))) { await api.logout(); return loginScreen("Vous devez accepter la politique de confidentialité pour utiliser l'application. Pour toute question, contactez votre professeure."); }

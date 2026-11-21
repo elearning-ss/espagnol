@@ -1,5 +1,6 @@
+:root{color-scheme:light}
 :root{--bg:#f4f3f1;--card:#fff;--ink:#2b2622;--mute:#7a6f66;--line:#e6e2dd;--g:#b8322a;--gl:#fbe8e5;--gd:#8a221c;--ok:#2f7d5b;--okl:#e6f2ec;--r:#c2412d;--rl:#fbe9e5;--o:#c98a1b;--ol:#fdf3d8;--rad:14px}
-@media (prefers-color-scheme:dark){:root{--bg:#1c1a18;--card:#26231f;--ink:#f1ebe3;--mute:#a99d91;--line:#3a352f;--gl:#3d211b;--okl:#1f3a2e;--rl:#3d211b;--ol:#3a2e17}}
+@media not all{:root{--bg:#1c1a18;--card:#26231f;--ink:#f1ebe3;--mute:#a99d91;--line:#3a352f;--gl:#3d211b;--okl:#1f3a2e;--rl:#3d211b;--ol:#3a2e17}}
 *{box-sizing:border-box}
 body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-tap-highlight-color:transparent}
 header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--line)}
@@ -308,7 +309,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important;user-select:none}
 
 /* =================== Relief 1 · Doux (ombres à la place des bordures) =================== */
 :root{--sh1:0 1px 2px rgba(43,38,34,.06),0 4px 14px rgba(43,38,34,.05);--sh2:0 2px 4px rgba(43,38,34,.06),0 12px 28px rgba(43,38,34,.10);--shb:0 1px 2px rgba(43,38,34,.08),0 2px 8px rgba(43,38,34,.05)}
-@media (prefers-color-scheme:dark){:root{--sh1:0 1px 2px rgba(0,0,0,.35),0 4px 14px rgba(0,0,0,.25);--sh2:0 2px 4px rgba(0,0,0,.4),0 12px 28px rgba(0,0,0,.35);--shb:0 1px 3px rgba(0,0,0,.4)}}
+@media not all{:root{--sh1:0 1px 2px rgba(0,0,0,.35),0 4px 14px rgba(0,0,0,.25);--sh2:0 2px 4px rgba(0,0,0,.4),0 12px 28px rgba(0,0,0,.35);--shb:0 1px 3px rgba(0,0,0,.4)}}
 .card,.scard,.kpi div,.list .item,.chap,.src,.explorer,.sticky-save,.exbox,.prof{border-color:transparent;box-shadow:var(--sh1)}
 .card.hero{box-shadow:0 2px 6px rgba(184,50,42,.18),0 10px 26px rgba(184,50,42,.16)}
 .card.step,.scard,.list .item{transition:box-shadow .18s,transform .18s}
@@ -449,8 +450,12 @@ nav.side .nb{position:absolute;background:var(--r);color:#fff;font-size:11px;fon
 /* barre d'accents : passe à la ligne sur petit écran */
 .facc{max-width:calc(100vw - 16px);flex-wrap:wrap}
 /* mode sombre : rouges et verts plus clairs pour rester lisibles sur fond foncé */
-@media (prefers-color-scheme:dark){
+@media not all{
   :root{--g:#d9564b;--r:#e0624f;--ok:#4caf84}
   .say{color:#ff8f82}
   .av{color:#ffb1a8}
 }
+.flag-xl{width:54px;height:36px;border-radius:5px;margin:0}
+.invpw{background:var(--ol);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:15px}
+.invpw b{font-family:ui-monospace,monospace;font-size:17px;letter-spacing:.5px}
+.invbtn{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}

@@ -8,6 +8,7 @@ import { libraryView } from "./adm-library.js";
 import { studentsView, studentDetail, templatesView, templateEdit, dashboardView } from "./adm-students.js";
 import { messagesView, writingsView, correctView, reloadSocial, socialBadges, privacyCard } from "./adm-social.js";
 import { stopPoll } from "./social.js";
+import { tempPassword, sendInviteDialog } from "./invite.js";
 
 const NAV = [["home", "🏠", "Accueil"], ["students", "👥", "Élèves"], ["templates", "🧭", "Parcours types"], ["messages", "💬", "Messages"], ["writings", "✍️", "Rédactions"], ["lessons", "🎓", "Leçons"], ["library", "🗂️", "Bibliothèque"], ["account", "⚙️", "Compte"]];
 const VIEWS = { home: dashboardView, students: studentsView, student: studentDetail, templates: templatesView, template: templateEdit, lessons: lessonsView, lesson: editLesson, library: libraryView, account: accountView, messages: messagesView, writings: writingsView, correct: correctView };
@@ -80,31 +81,32 @@ function drawAdmins() {
   const box = $("#admins"), me = S.C.user.uid;
   box.innerHTML = `<b>👩‍🏫 Administrateurs</b><p class="mute">Les administrateurs ont tous les mêmes droits que vous : leçons, bibliothèque, élèves, parcours. Vous travaillez sur les mêmes données, comme dans une même école.</p>
     ${S.admins.map(a => `<div class="vrow row" style="align-items:center"><span class="row tight" style="align-items:center"><span class="av">${esc(initials(a))}</span><span><b>${esc(sName(a))}</b>${a.id === me ? ' <span class="tag OK">vous</span>' : ""}<br><small class="mute">${esc(a.email)}</small></span></span>
-      <span class="row tight" style="flex:none">${a.id === me ? "" : `<button class="btn ghost small" data-demote="${a.id}">Retirer les droits</button>`}</span></div>`).join("")}
+      <span class="row tight" style="flex:none">${a.id !== me && a.mustChange && a.tempPw ? `<button class="btn ghost small" data-reinv="${a.id}">✉️ Invitation</button>` : ""}${a.id === me ? "" : `<button class="btn ghost small" data-demote="${a.id}">Retirer les droits</button>`}</span></div>`).join("")}
     <p class="row tight"><button class="btn small" id="ad_inv">✉️ Inviter un administrateur</button><button class="btn ghost small" id="ad_pro">⬆️ Passer un élève administrateur</button></p>`;
   $("#ad_inv").onclick = inviteAdmin;
   $("#ad_pro").onclick = promote;
   box.querySelectorAll("[data-demote]").forEach(b => b.onclick = () => demote(b.dataset.demote));
+  box.querySelectorAll("[data-reinv]").forEach(b => b.onclick = () => { const a = S.admins.find(x => x.id === b.dataset.reinv); sendInviteDialog({ name: a.name, email: a.email, pw: a.tempPw, teacher: S.C.profile?.name || "", role: "admin", again: true }); });
 }
 async function inviteAdmin() {
   const body = document.createElement("div");
   body.innerHTML = `<label class="f">Prénom et nom</label><input type="text" id="a_n" placeholder="Ana García">
     <label class="f">Adresse e-mail</label><input type="email" id="a_m" placeholder="adresse@email.com">
-    <p class="mute">${DEMO ? "<b>Mode démo :</b> aucun e-mail n'est envoyé." : "Il reçoit un e-mail pour choisir son mot de passe, puis se connecte et arrive directement dans l'espace professeur."}</p>`;
-  const r = await modal({ title: "✉️ Inviter un administrateur", body, buttons: [{ label: "Annuler", value: null }, { label: "Envoyer l'invitation", primary: true, act: () => {
+    <p class="mute">Le compte est créé avec un mot de passe provisoire ; vous lui envoyez ensuite l'invitation depuis votre propre messagerie (message tout prêt).</p>`;
+  const r = await modal({ title: "✉️ Inviter un administrateur", body, buttons: [{ label: "Annuler", value: null }, { label: "Créer le compte", primary: true, act: () => {
     const name = body.querySelector("#a_n").value.trim(), email = body.querySelector("#a_m").value.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(email)) { toast("Adresse e-mail invalide."); return false; }
     return { name, email };
   } }] }).result;
   if (!r) return;
   try {
-    toast("Envoi…", 1500);
-    const uid = await api().createStudent(r.email);
-    const doc = { email: r.email, name: r.name, role: "admin", createdAt: Date.now(), invitedAt: Date.now() };
+    toast("Création du compte…", 1500);
+    const pw = tempPassword(), uid = await api().createStudent(r.email, pw);
+    const doc = { email: r.email, name: r.name, role: "admin", createdAt: Date.now(), invitedAt: Date.now(), mustChange: true, tempPw: pw };
     await api().set("users/" + uid, doc, false);
     S.admins.push({ id: uid, ...doc });
-    toast(DEMO ? "Administrateur créé (démo : pas d'e-mail)" : `Invitation envoyée à ${r.email} ✓`, 3500);
     drawAdmins();
+    await sendInviteDialog({ name: r.name, email: r.email, pw, teacher: S.C.profile?.name || "", role: "admin" });
   } catch (e) {
     if (e.code === "auth/email-already-in-use") toast("Ce compte existe déjà. Si c'est un élève, utilisez « Passer un élève administrateur ».", 6000);
     else fail(e);

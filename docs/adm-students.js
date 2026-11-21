@@ -5,6 +5,7 @@ import { S, api, fail, clone, normPlan, savePlan, syncAccess, lib, studentById, 
 import { pathBuilder } from "./adm-path.js";
 import { DEMO } from "./fb.js";
 import { startStudent } from "./student.js";
+import { tempPassword, sendInviteDialog } from "./invite.js";
 import { purgeSocial, assignTopic, unreadCount, toCorrect, rulesBox } from "./adm-social.js";
 import { unreadFor } from "./social.js";
 import { fileKind, kindIcon, parseVocabText, uploadFile, fmtSize, MAX_FILE, previewFile } from "./files.js";
@@ -45,22 +46,23 @@ async function invite() {
   body.innerHTML = `<label class="f">Prénom et nom</label><input type="text" id="i_n" placeholder="Lucía Martin">
     <label class="f">Adresse e-mail</label><input type="email" id="i_m" placeholder="adresse@email.com">
     <label class="f">Parcours de départ</label><select id="i_t"><option value="">Vide (je le construis moi-même)</option>${S.templates.map((t, i) => `<option value="${t.id}" ${i === 0 ? "selected" : ""}>🧭 ${esc(t.name)}</option>`).join("")}</select>
-    <p class="mute">${DEMO ? "<b>Mode démo :</b> aucun e-mail n'est envoyé." : "L'élève reçoit un e-mail pour choisir son mot de passe, puis se connecte à l'application."}</p>`;
-  const r = await modal({ title: "✉️ Inviter un élève", body, buttons: [{ label: "Annuler", value: null }, { label: "Envoyer l'invitation", primary: true, act: () => {
+    <p class="mute">Le compte est créé avec un mot de passe provisoire. Vous envoyez ensuite l'invitation <b>depuis votre propre messagerie</b> (message tout prêt).</p>`;
+  const r = await modal({ title: "✉️ Inviter un élève", body, buttons: [{ label: "Annuler", value: null }, { label: "Créer le compte", primary: true, act: () => {
     const name = body.querySelector("#i_n").value.trim(), email = body.querySelector("#i_m").value.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(email)) { toast("Adresse e-mail invalide."); return false; }
     return { name, email, tpl: body.querySelector("#i_t").value };
   } }] }).result;
   if (!r) return;
   try {
-    toast("Envoi…", 1500);
-    const uid = await api().createStudent(r.email);
-    await api().set("users/" + uid, { email: r.email, name: r.name, role: "student", createdAt: Date.now(), invitedAt: Date.now() }, false);
-    S.students.push({ id: uid, email: r.email, name: r.name, role: "student", createdAt: Date.now() });
+    toast("Création du compte…", 1500);
+    const pw = tempPassword(), uid = await api().createStudent(r.email, pw);
+    const doc = { email: r.email, name: r.name, role: "student", createdAt: Date.now(), invitedAt: Date.now(), mustChange: true, tempPw: pw };
+    await api().set("users/" + uid, doc, false);
+    S.students.push({ id: uid, ...doc });
     const t = S.templates.find(x => x.id === r.tpl);
     const plan = normPlan(t ? { chapters: freshChapters(t.chapters), state: clone(t.state || {}) } : {});
     await savePlan(uid, plan);
-    toast(DEMO ? "Élève créé (démo : pas d'e-mail)" : `Invitation envoyée à ${r.email} ✓`, 3500);
+    await sendInviteDialog({ name: r.name, email: r.email, pw, teacher: S.C.profile?.name || "Votre professeure", role: "student" });
     S.C.go("student", uid);
   } catch (e) {
     if (e.code === "auth/email-already-in-use") toast("Un compte existe déjà avec cet e-mail. Ouvrez la fiche de l'élève et utilisez « Renvoyer l'invitation ».", 6000);
@@ -68,6 +70,13 @@ async function invite() {
   }
 }
 const freshChapters = ch => clone(ch).map(c => ({ ...c, id: newId() }));
+// Renvoyer : même mot de passe provisoire s'il n'a pas encore choisi le sien ; sinon, lien « mot de passe oublié »
+export async function resendInvite(s) {
+  if (s.mustChange && s.tempPw) return sendInviteDialog({ name: s.name, email: s.email, pw: s.tempPw, teacher: S.C.profile?.name || "Votre professeure", role: s.role, again: true });
+  const c = await choiceDlg("✉️ Renvoyer l'invitation", `<b>${esc(sName(s))}</b> a déjà choisi son mot de passe. S'il l'a oublié, le plus simple est qu'il clique sur « Mot de passe oublié ? » sur la page de connexion.`,
+    [{ label: "Envoyer le mail de réinitialisation", value: "fb" }]);
+  if (c === "fb") { try { await api().resetPassword(s.email); toast(DEMO ? "(démo : pas d'e-mail)" : "E-mail envoyé ✓"); } catch (e) { fail(e); } }
+}
 
 /* =================== FICHE ÉLÈVE =================== */
 export function studentDetail(uid, tab = "path") {
@@ -108,7 +117,7 @@ export function studentDetail(uid, tab = "path") {
       { icon: "💾", label: "Enregistrer comme parcours type…", act: () => saveAsTemplate(P) },
       { icon: "✍️", label: "Donner un sujet de rédaction…", act: () => assignTopic([uid]) },
       "-",
-      { icon: "✉️", label: "Renvoyer l'invitation", act: async () => { try { await api().resetPassword(s.email); toast(DEMO ? "(démo : pas d'e-mail)" : "E-mail renvoyé ✓"); } catch (e) { fail(e); } } },
+      { icon: "✉️", label: "Renvoyer l'invitation", act: () => resendInvite(s) },
       { icon: s.disabled ? "▶️" : "⏸️", label: s.disabled ? "Réactiver le compte" : "Désactiver le compte", act: async () => { try { s.disabled = !s.disabled; await api().set("users/" + uid, { disabled: s.disabled }); await syncAccess(); render(); } catch (e) { fail(e); } } },
       { icon: "🗑️", label: "Supprimer l'élève", danger: true, act: async () => {
         if (!await confirmDlg(`Supprimer ${esc(sName(s))} et <b>toutes</b> ses données : parcours, progression, messages et rédactions ?<br><br><small class="mute">Pour supprimer aussi son identifiant de connexion : console Firebase › Authentication.</small>`, { ok: "Supprimer", danger: true })) return;
@@ -408,7 +417,7 @@ export function dashboardView() {
     const lastAtt = Object.entries(pr.attempts || {}).flatMap(([id, a]) => a.map(x => ({ id, ...x }))).sort((a, b) => b.at - a.at)[0];
     if (lastAtt && lastAtt.pct < 50 && Date.now() - lastAtt.at < 14 * 864e5) { const l = S.lessons.find(x => x.id === lastAtt.id); if (l) todo.push({ s, ic: "🆘", txt: `a eu ${lastAtt.pct} % à « ${esc(l.title)} »`, btn: "Ajouter une note / un exercice", act: () => S.C.go("student", s.id) }); }
     const d = daysAgo(st.last);
-    if (!st.last && s.createdAt && Date.now() - s.createdAt > 3 * 864e5) todo.push({ s, ic: "✉️", txt: "ne s'est jamais connecté", btn: "Renvoyer l'invitation", act: async () => { try { await api().resetPassword(s.email); toast(DEMO ? "(démo : pas d'e-mail)" : "Invitation renvoyée ✓"); } catch (e) { fail(e); } } });
+    if (!st.last && s.createdAt && Date.now() - s.createdAt > 3 * 864e5) todo.push({ s, ic: "✉️", txt: "ne s'est jamais connecté", btn: "Renvoyer l'invitation", act: () => resendInvite(s) });
     else if (d > 10) todo.push({ s, ic: "💤", txt: `inactif depuis ${d} jours`, btn: "Écrire un message", act: () => S.C.go("messages", s.id) });
     const th = S.threads?.[s.id];
     if (unreadFor(th, "t")) todo.unshift({ s, ic: /suppression/i.test(th.lastText || "") ? "🗑️" : "💬", txt: `vous a écrit : « ${esc((th.lastText || "").slice(0, 70))} »`, btn: "Répondre", act: () => S.C.go("messages", s.id) });

@@ -43,16 +43,16 @@ async function initFirebase() {
     logout: () => U.signOut(auth),
     resetPassword: e => U.sendPasswordResetEmail(auth, e, back()),
     changePassword: async pw => U.updatePassword(auth.currentUser, pw),
-    // Création d'un compte élève SANS déconnecter le professeur : seconde instance
-    // Firebase, puis e-mail « choisissez votre mot de passe » qui sert d'invitation.
-    createStudent: async email => {
+    // Création d'un compte SANS déconnecter le professeur : seconde instance Firebase.
+    // Avec un mot de passe provisoire : pas de mail Firebase, le professeur envoie l'invitation lui-même.
+    createStudent: async (email, tempPw) => {
       const sec = A.getApps().find(a => a.name === "invite") || A.initializeApp(firebaseConfig, "invite");
       const sa = U.getAuth(sec);
-      const pw = crypto.getRandomValues(new Uint32Array(4)).join("-") + "Aa!";
+      const pw = tempPw || crypto.getRandomValues(new Uint32Array(4)).join("-") + "Aa!";
       let uid;
       try { uid = (await U.createUserWithEmailAndPassword(sa, email, pw)).user.uid; }
       finally { try { await U.signOut(sa); } catch (e) {} }
-      await U.sendPasswordResetEmail(auth, email, back());
+      if (!tempPw) await U.sendPasswordResetEmail(auth, email, back());
       return uid;
     },
     get: async p => { const s = await F.getDoc(ref(p)); return s.exists() ? decode(s.data()) : null; },
